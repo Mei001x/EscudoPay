@@ -1,10 +1,11 @@
 import { Router } from "express";
-import { createReportHandler, getCaseByIdHandler, getCasesHandler } from "./cases.controller";
+import { addSignatureHandler, createReportHandler, getCaseByIdHandler, getCasesHandler } from "./cases.controller";
 
 const casesRoutes = Router();
 
 casesRoutes.post("/", createReportHandler);
 casesRoutes.get("/", getCasesHandler);
 casesRoutes.get("/:id", getCaseByIdHandler);
+casesRoutes.post("/:id/signatures", addSignatureHandler);
 
 export { casesRoutes };
