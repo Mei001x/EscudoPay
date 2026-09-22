@@ -1,121 +1,115 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { addSignature, createReport, getAllCases, getCaseById, processPayout } from "./cases.service";
+import * as casesService from "./cases.service";
 
 const createReportSchema = z.object({
-  informanteWallet: z.string().min(1, "informanteWallet es requerido"),
-  delitoTipo: z.string().min(1, "delitoTipo es requerido"),
-  descripcion: z.string().min(1, "descripcion es requerido"),
+  informanteWallet: z.string().min(1),
+  delitoTipo: z.string().min(1),
+  descripcion: z.string().min(1),
   evidenciaHash: z.string().optional(),
   montoRecompensaSugerido: z.number().nonnegative().optional(),
 });
 
 export function createReportHandler(req: Request, res: Response): void {
   try {
-    const parsed = createReportSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      res.status(400).json({
-        error: "Datos de reporte inválidos",
-        details: parsed.error.flatten(),
-      });
+    const validated = createReportSchema.parse(req.body);
+    const result = casesService.createReport(validated);
+    res.status(201).json(result);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: "Datos de reporte inválidos", details: error.issues });
       return;
     }
-
-    const reportCase = createReport(parsed.data);
-    res.status(201).json(reportCase);
-  } catch {
-    res.status(500).json({ error: "Error interno al registrar el reporte" });
+    res.status(500).json({ error: "Error interno del servidor" });
   }
 }
 
 export function getCasesHandler(req: Request, res: Response): void {
   try {
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
-    const result = getAllCases(status);
+    const result = casesService.getAllCases(status);
     res.status(200).json(result);
-  } catch {
-    res.status(500).json({ error: "Error interno al obtener los casos" });
+  } catch (error) {
+    res.status(500).json({ error: "Error al listar casos" });
   }
 }
 
 export function getCaseByIdHandler(req: Request, res: Response): void {
   try {
-    const { id } = req.params;
-    if (typeof id !== "string") {
-      res.status(400).json({ error: "ID inválido" });
-      return;
-    }
-    const result = getCaseById(id);
-    if (result === null) {
+    const id = String(req.params.id);
+    const result = casesService.getCaseById(id);
+    if (!result) {
       res.status(404).json({ error: "Caso no encontrado" });
       return;
     }
     res.status(200).json(result);
-  } catch {
-    res.status(500).json({ error: "Error interno al obtener el caso" });
+  } catch (error) {
+    res.status(500).json({ error: "Error al obtener caso" });
   }
 }
 
-export function addSignatureHandler(req: Request, res: Response): void {
+const verifySchema = z.object({
+  rol: z.enum(["policia", "fiscalia"]),
+  verificadorWallet: z.string().min(1),
+  resultado: z.enum(["aprobado", "rechazado"]),
+  signedXDR: z.string().optional(),
+  motivo: z.string().optional(),
+});
+
+export function verifyCaseHandler(req: Request, res: Response): void {
   try {
-    const signatureSchema = z.object({
-      signerWallet: z.string().min(1),
-      rol: z.enum(["policia", "fiscal"]),
-      decision: z.enum(["aprobar", "rechazar"]).default("aprobar"),
-    });
-
-    const parsed = signatureSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      res.status(400).json({
-        error: "Datos de firma inválidos",
-        details: parsed.error.flatten(),
-      });
-      return;
-    }
-
     const id = String(req.params.id);
-    const result = addSignature(id, parsed.data);
+    const validated = verifySchema.parse(req.body);
+    const result = casesService.verifyCase(id, validated);
 
-    if ((result as { error?: string }).error === "not_found") {
+    if (result.error === "not_found") {
       res.status(404).json({ error: "Caso no encontrado" });
       return;
     }
-
-    if ((result as { error?: string }).error === "already_signed") {
-      res.status(400).json({ error: "Este rol ya firmó el caso" });
+    res.status(200).json(result.data);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: "Datos de verificación inválidos", details: error.issues });
       return;
     }
-
-    res.status(200).json((result as { caso: unknown }).caso);
-  } catch {
-    res.status(500).json({ error: "Error interno al firmar el caso" });
+    res.status(500).json({ error: "Error al procesar verificación" });
   }
 }
 
-export function processPayoutHandler(req: Request, res: Response): void {
+export function releaseCaseHandler(req: Request, res: Response): void {
   try {
     const id = String(req.params.id);
-    const result = processPayout(id);
+    const result = casesService.releaseCase(id);
 
-    if ((result as { error?: string }).error === "not_found") {
+    if (result.error === "not_found") {
       res.status(404).json({ error: "Caso no encontrado" });
       return;
     }
-
-    if ((result as { error?: string }).error === "already_paid") {
-      res.status(400).json({ error: "La recompensa ya fue pagada previamente" });
+    if (result.error === "already_paid") {
+      res.status(400).json({ error: "La recompensa ya fue liberada previamente" });
+      return;
+    }
+    if (result.error === "not_ready") {
+      res.status(400).json({ error: "El caso aún no cuenta con las firmas requeridas (listo_para_liberar)" });
       return;
     }
 
-    if ((result as { error?: string }).error === "not_approved") {
-      res.status(400).json({ error: "El caso no cuenta con las aprobaciones necesarias para el desembolso" });
+    res.status(200).json(result.data);
+  } catch (error) {
+    res.status(500).json({ error: "Error al liberar pago" });
+  }
+}
+
+export function getCaseProofHandler(req: Request, res: Response): void {
+  try {
+    const id = String(req.params.id);
+    const result = casesService.getCaseProof(id);
+    if (!result) {
+      res.status(404).json({ error: "Caso no encontrado" });
       return;
     }
-
-    res.status(200).json((result as { payout: unknown }).payout);
-  } catch {
-    res.status(500).json({ error: "Error interno al procesar el pago" });
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(500).json({ error: "Error al obtener prueba" });
   }
 }
