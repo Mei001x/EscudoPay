@@ -141,3 +141,12 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Build outputs de packages internos
+packages/*/dist/
+
+# AI agent directories (Cursor, Claude, Devin, etc.)
+.agents/
+.claude/
+.cursor/
+.devin/

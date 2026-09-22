@@ -1,0 +1,19 @@
+FROM node:20-bookworm-slim
+
+WORKDIR /workspace
+
+RUN corepack enable && corepack prepare pnpm@10.25.0 --activate
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web-verificador/package.json apps/web-verificador/package.json
+COPY packages/shared-types/package.json packages/shared-types/package.json
+COPY packages/stellar-client/package.json packages/stellar-client/package.json
+
+RUN pnpm install --frozen-lockfile
+
+COPY apps/web-verificador apps/web-verificador
+COPY packages packages
+
+EXPOSE 5174
+
+CMD ["pnpm", "--filter", "web-verificador", "dev"]

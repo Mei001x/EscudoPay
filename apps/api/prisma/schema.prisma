@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ────────────────────────────────
+// Enums
+// ────────────────────────────────
+
+enum RolVerificador {
+  POLICIA
+  FISCALIA
+  SISTEMA
+}
+
+enum EstadoCaso {
+  RECIBIDO
+  EN_VERIFICACION
+  EN_COLA              // esperando que se libere el Fondo (solo 1 tx activa a la vez)
+  LISTO_PARA_LIBERAR
+  PAGADO
+  RECHAZADO
+}
+
+enum TipoDelito {
+  EXTORSION
+  SICARIATO
+}
+
+enum EstadoTransaccion {
+  BORRADOR              // XDR construido, aún sin ninguna firma
+  ESPERANDO_FIRMAS      // al menos 1 firma, falta llegar al threshold
+  LISTA_PARA_ENVIAR     // threshold alcanzado, pendiente de submit a Horizon
+  ENVIADA                // submit exitoso a Horizon
+  FALLIDA                // Horizon rechazó (sequence number, mal formada, etc.)
+}
+
+// ────────────────────────────────
+// Modelos
+// ────────────────────────────────
+
+model Informante {
+  id                String   @id @default(cuid())
+  walletPublicKey   String   @unique
+  identidadCifrada  String?  // blob cifrado (AES) — nunca texto plano; la llave vive fuera de la BD (env/KMS)
+  createdAt         DateTime @default(now())
+
+  casos             Caso[]
+}
+
+model Verificador {
+  id                String          @id @default(cuid())
+  codigo            String          @unique // ej. "PNP-DIRNIC-04821"
+  claveHash         String          // bcrypt/argon2, nunca la clave en claro
+  rol               RolVerificador
+  nombre            String
+  walletPublicKey   String?
+  createdAt         DateTime        @default(now())
+
+  firmas            Firma[]
+}
+
+model Caso {
+  id                      String      @id @default(cuid()) // "caseId" expuesto en la API
+  informanteId            String
+  informante              Informante  @relation(fields: [informanteId], references: [id])
+
+  delitoTipo              TipoDelito
+  descripcion              String
+  evidenciaHash            String
+  evidenciaAncladaTx       String?     // tx hash de manageData en Stellar
+  evidenciaTimestamp       DateTime?
+
+  montoRecompensaSugerido  Int
+  montoRecompensa          Int?        // monto final aprobado (puede diferir del sugerido)
+
+  status                   EstadoCaso  @default(RECIBIDO)
+  claimableBalanceId       String?     // id de la Claimable Balance en Stellar (si se usa ese camino)
+  firmasRequeridas         Int         @default(2)
+
+  releaseTx                String?     // tx hash del claim/pago final
+  releaseExplorerUrl       String?
+  releasedAt                DateTime?
+
+  motivoRechazo             String?
+
+  createdAt                 DateTime    @default(now())
+  updatedAt                 DateTime    @updatedAt
+
+  firmas                    Firma[]
+  stellarTransaction        StellarTransaction?
+}
+
+model Firma {
+  id              String          @id @default(cuid())
+  casoId          String
+  caso            Caso            @relation(fields: [casoId], references: [id])
+
+  verificadorId   String?         // null si la firma la generó el "sistema"
+  verificador     Verificador?    @relation(fields: [verificadorId], references: [id])
+
+  rol             RolVerificador
+  firmado         Boolean         @default(false)
+  resultado       String?         // "aprobado" | "rechazado"
+  signedXDR       String?         // XDR firmado, si aplica
+  fecha           DateTime?
+
+  createdAt       DateTime        @default(now())
+
+  @@unique([casoId, rol]) // un rol firma una sola vez por caso
+}
+
+model StellarTransaction {
+  id                  String              @id @default(cuid())
+
+  casoId              String              @unique   // 1:1 con Caso — refuerza la cola: un caso, una tx activa
+  caso                Caso                @relation(fields: [casoId], references: [id])
+
+  cuentaOrigen        String              // pública del Fondo multisig
+  sequenceNumber      String              // el que se usó al construir el XDR — snapshot, no se recalcula
+
+  unsignedXdr         String
+  signedXdr           String?             // se va actualizando a medida que se acumulan firmas
+  firmasAcumuladas    Int                 @default(0)
+  firmasRequeridas    Int                 @default(2)
+
+  status              EstadoTransaccion   @default(BORRADOR)
+
+  horizonHash          String?
+  horizonResultCode    String?            // guarda el error de Horizon si FALLIDA, ej. "tx_bad_seq"
+
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  // Solo puede existir una transacción activa por cuenta de origen a la vez.
+  // Esto se controla a nivel de aplicación (query antes de construir el XDR),
+  // no a nivel de constraint de BD, porque el estado cambia con el tiempo.
+  @@index([cuentaOrigen, status])
+}

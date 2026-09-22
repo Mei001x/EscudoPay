@@ -1,0 +1,19 @@
+FROM node:20-bookworm-slim
+
+WORKDIR /workspace
+
+RUN corepack enable && corepack prepare pnpm@10.25.0 --activate
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web-informante/package.json apps/web-informante/package.json
+COPY packages/shared-types/package.json packages/shared-types/package.json
+COPY packages/stellar-client/package.json packages/stellar-client/package.json
+
+RUN pnpm install --frozen-lockfile
+
+COPY apps/web-informante apps/web-informante
+COPY packages packages
+
+EXPOSE 5173
+
+CMD ["pnpm", "--filter", "web-informante", "dev"]

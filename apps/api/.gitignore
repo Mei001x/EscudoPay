@@ -1,0 +1,19 @@
+node_modules/
+dist/
+
+# Entorno — solo se sube el ejemplo
+.env
+.env.*
+!.env.example
+
+# TypeScript
+*.tsbuildinfo
+
+# Prisma
+prisma/generated/
+
+# AI agent directories (Cursor, Claude, Devin, etc.)
+.agents/
+.claude/
+.cursor/
+.devin/
