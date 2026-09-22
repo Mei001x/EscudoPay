@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { addSignature, createReport, getAllCases, getCaseById } from "./cases.service";
+import { addSignature, createReport, getAllCases, getCaseById, processPayout } from "./cases.service";
 
 const createReportSchema = z.object({
   informanteWallet: z.string().min(1, "informanteWallet es requerido"),
@@ -91,5 +91,31 @@ export function addSignatureHandler(req: Request, res: Response): void {
     res.status(200).json((result as { caso: unknown }).caso);
   } catch {
     res.status(500).json({ error: "Error interno al firmar el caso" });
+  }
+}
+
+export function processPayoutHandler(req: Request, res: Response): void {
+  try {
+    const id = String(req.params.id);
+    const result = processPayout(id);
+
+    if ((result as { error?: string }).error === "not_found") {
+      res.status(404).json({ error: "Caso no encontrado" });
+      return;
+    }
+
+    if ((result as { error?: string }).error === "already_paid") {
+      res.status(400).json({ error: "La recompensa ya fue pagada previamente" });
+      return;
+    }
+
+    if ((result as { error?: string }).error === "not_approved") {
+      res.status(400).json({ error: "El caso no cuenta con las aprobaciones necesarias para el desembolso" });
+      return;
+    }
+
+    res.status(200).json((result as { payout: unknown }).payout);
+  } catch {
+    res.status(500).json({ error: "Error interno al procesar el pago" });
   }
 }

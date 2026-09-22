@@ -151,3 +151,55 @@ export function addSignature(
 
   return { caso };
 }
+
+export function processPayout(caseId: string) {
+  const caso = reports.get(caseId) as
+    | (ReportCase & {
+        status: string;
+        montoRecompensa?: number;
+        montoRecompensaSugerido?: number;
+        payoutTxHash?: string;
+        payoutExplorerUrl?: string;
+        paidAt?: string;
+      })
+    | undefined;
+
+  if (!caso) {
+    return { error: "not_found" as const };
+  }
+
+  if ((caso as unknown as Record<string, unknown>).status === "pagado") {
+    return { error: "already_paid" as const };
+  }
+
+  if ((caso as unknown as Record<string, unknown>).status !== "aprobado") {
+    return { error: "not_approved" as const };
+  }
+
+  const payoutTxHash = randomBytes(32).toString("hex");
+  const payoutExplorerUrl = `https://stellar.expert/explorer/testnet/tx/${payoutTxHash}`;
+  const paidAt = new Date().toISOString();
+
+  (caso as unknown as Record<string, unknown>).status = "pagado";
+  (caso as unknown as Record<string, unknown>).payoutTxHash = payoutTxHash;
+  (caso as unknown as Record<string, unknown>).payoutExplorerUrl = payoutExplorerUrl;
+  (caso as unknown as Record<string, unknown>).paidAt = paidAt;
+
+  const amount =
+    (caso as unknown as Record<string, unknown>).montoRecompensa ??
+    (caso as unknown as Record<string, unknown>).montoRecompensaSugerido ??
+    0;
+
+  return {
+    caso,
+    payout: {
+      caseId: caso.caseId,
+      recipientWallet: caso.informanteWallet,
+      amount: amount as number,
+      status: "pagado" as const,
+      payoutTxHash,
+      payoutExplorerUrl,
+      paidAt,
+    },
+  };
+}
