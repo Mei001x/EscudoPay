@@ -28,3 +28,35 @@ export function createReport(data: CreateReportRequest): ReportCase {
   reports.set(reportCase.caseId, reportCase);
   return reportCase;
 }
+
+export function getAllCases(status?: string) {
+  const all = Array.from(reports.values());
+  const filtered = status ? all.filter((c) => c.status === status) : all;
+  return {
+    total: filtered.length,
+    casos: filtered.map((c) => ({
+      caseId: c.caseId,
+      delitoTipo: c.delitoTipo,
+      status: c.status,
+      montoRecompensa: c.montoRecompensaSugerido ?? 0,
+      createdAt: c.createdAt,
+    })),
+  };
+}
+
+export function getCaseById(caseId: string) {
+  const c = reports.get(caseId);
+  if (!c) return null;
+  return {
+    ...c,
+    montoRecompensa: (c as ReportCase & { montoRecompensaSugerido?: number }).montoRecompensaSugerido ?? 0,
+    firmas: {
+      requeridas: 2,
+      obtenidas: 0,
+      detalle: [
+        { rol: "policia", firmado: false, fecha: null },
+        { rol: "fiscal", firmado: false, fecha: null },
+      ],
+    },
+  };
+}

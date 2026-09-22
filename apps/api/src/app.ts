@@ -19,6 +19,7 @@ app.use(express.json());
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use("/api/health", healthRoutes);
 app.use("/api/reports", casesRoutes);
+app.use("/api/cases", casesRoutes);
 
 // Ruta Raíz
 app.get('/', (request, response) => {
