@@ -6,6 +6,7 @@ import swaggerUi from "swagger-ui-express";
 import { config } from "./config/configuration";
 import { swaggerSpec } from "./config/swagger";
 import { healthRoutes } from "./modules/health/health.routes";
+import { casesRoutes } from "./modules/cases/cases.routes";
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -17,6 +18,7 @@ app.use(express.json());
 // Endpoints
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use("/api/health", healthRoutes);
+app.use("/api/reports", casesRoutes);
 
 // Ruta Raíz
 app.get('/', (request, response) => {
@@ -35,4 +37,4 @@ app.get('/', (request, response) => {
   })
 })
 
-export { httpServer};
+export { httpServer };
