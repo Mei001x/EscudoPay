@@ -49,9 +49,9 @@ export function getCaseByIdHandler(req: Request, res: Response): void {
 }
 
 const verifySchema = z.object({
-  rol: z.enum(["policia", "fiscalia"]),
+  rol: z.enum(["POLICIA", "FISCALIA"]),
   verificadorWallet: z.string().min(1),
-  resultado: z.enum(["aprobado", "rechazado"]),
+  resultado: z.enum(["APROBADO", "RECHAZADO"]),
   signedXDR: z.string().optional(),
   motivo: z.string().optional(),
 });
@@ -90,7 +90,7 @@ export function releaseCaseHandler(req: Request, res: Response): void {
       return;
     }
     if (result.error === "not_ready") {
-      res.status(400).json({ error: "El caso aún no cuenta con las firmas requeridas (listo_para_liberar)" });
+      res.status(400).json({ error: "El caso aún no cuenta con las firmas requeridas (LISTO_PARA_LIBERAR)" });
       return;
     }
 

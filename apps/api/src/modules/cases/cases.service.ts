@@ -1,6 +1,10 @@
-import { randomBytes, randomUUID } from "node:crypto";
-import type { CreateReportRequest, ReportCase } from "./cases.types";
+import { randomBytes } from "node:crypto";
+import type { CreateReportRequest, VerifyRequest } from "./cases.types";
 
+// ------------------------------------------------------------
+// Almacenamiento temporal en memoria — se reemplazará por
+// casos.repository.ts en la Tarea 2 (Prisma)
+// ------------------------------------------------------------
 const reports = new Map<string, any>();
 
 export function createReport(data: CreateReportRequest) {
@@ -12,24 +16,23 @@ export function createReport(data: CreateReportRequest) {
 
   const newCase = {
     caseId,
-    status: "recibido",
+    status: "RECIBIDO",
     informanteWallet: data.informanteWallet,
     delitoTipo: data.delitoTipo,
     descripcion: data.descripcion,
-    evidenciaHash: data.evidenciaHash || randomBytes(32).toString("hex"),
-    montoRecompensa: data.montoRecompensaSugerido || 5000,
+    evidenciaHash: data.evidenciaHash ?? randomBytes(32).toString("hex"),
+    montoRecompensa: data.montoRecompensaSugerido ?? 5000,
     evidenciaAncladaTx,
     explorerUrl,
     createdAt,
     claimableBalanceId,
     firmas: {
       requeridas: 2,
-      obtenidas: 1,
+      obtenidas: 0,
       detalle: [
-        { rol: "policia", firmado: false, fecha: null, verificadorWallet: null },
-        { rol: "fiscalia", firmado: false, fecha: null, verificadorWallet: null },
-        { rol: "sistema", firmado: true, fecha: createdAt, verificadorWallet: "SISTEMA_ESCUDOPAY" }
-      ]
+        { rol: "POLICIA", firmado: false, fecha: null, verificadorWallet: null },
+        { rol: "FISCALIA", firmado: false, fecha: null, verificadorWallet: null },
+      ],
     },
     releaseTx: null,
     releaseExplorerUrl: null,
@@ -51,7 +54,8 @@ export function createReport(data: CreateReportRequest) {
 export function getAllCases(status?: string) {
   let list = Array.from(reports.values());
   if (status) {
-    list = list.filter((c) => c.status === status);
+    // acepta tanto mayúsculas como minúsculas desde el query param
+    list = list.filter((c) => c.status === status.toUpperCase());
   }
   return {
     total: list.length,
@@ -77,30 +81,24 @@ export function getCaseById(caseId: string) {
   };
 }
 
-export function verifyCase(caseId: string, data: {
-  rol: "policia" | "fiscalia";
-  verificadorWallet: string;
-  resultado: "aprobado" | "rechazado";
-  signedXDR?: string;
-  motivo?: string;
-}) {
+export function verifyCase(caseId: string, data: VerifyRequest) {
   const c = reports.get(caseId);
   if (!c) return { error: "not_found" };
 
-  if (data.resultado === "rechazado") {
-    c.status = "rechazado";
-    c.motivoRechazo = data.motivo || "Rechazado por el verificador";
+  if (data.resultado === "RECHAZADO") {
+    c.status = "RECHAZADO";
+    c.motivoRechazo = data.motivo ?? "Rechazado por el verificador";
     return {
       success: true,
       data: {
         caseId: c.caseId,
-        status: "rechazado",
+        status: "RECHAZADO",
         motivo: c.motivoRechazo,
-      }
+      },
     };
   }
 
-  // Aprobado
+  // APROBADO — marcar la firma del rol correspondiente
   const firmaSlot = c.firmas.detalle.find((f: any) => f.rol === data.rol);
   if (firmaSlot && !firmaSlot.firmado) {
     firmaSlot.firmado = true;
@@ -109,13 +107,11 @@ export function verifyCase(caseId: string, data: {
     c.firmas.obtenidas += 1;
   }
 
-  // Si cuenta con las 2 firmas de autoridades (policia y fiscalia) o >= 2
-  const humanasFirmadas = c.firmas.detalle.filter((f: any) => (f.rol === "policia" || f.rol === "fiscalia") && f.firmado).length;
-  if (humanasFirmadas >= 2 || c.firmas.obtenidas >= 3) {
-    c.status = "listo_para_liberar";
-  } else {
-    c.status = "en_verificacion";
-  }
+  const humanasFirmadas: number = c.firmas.detalle.filter(
+    (f: any) => (f.rol === "POLICIA" || f.rol === "FISCALIA") && f.firmado,
+  ).length;
+
+  c.status = humanasFirmadas >= 2 ? "LISTO_PARA_LIBERAR" : "EN_VERIFICACION";
 
   return {
     success: true,
@@ -124,19 +120,19 @@ export function verifyCase(caseId: string, data: {
       status: c.status,
       firmasObtenidas: humanasFirmadas,
       firmasRequeridas: c.firmas.requeridas,
-    }
+    },
   };
 }
 
 export function releaseCase(caseId: string) {
   const c = reports.get(caseId);
   if (!c) return { error: "not_found" };
-  if (c.status === "pagado") return { error: "already_paid" };
-  if (c.status !== "listo_para_liberar") return { error: "not_ready" };
+  if (c.status === "PAGADO") return { error: "already_paid" };
+  if (c.status !== "LISTO_PARA_LIBERAR") return { error: "not_ready" };
 
   const tx = randomBytes(32).toString("hex");
   const explorerUrl = `https://stellar.expert/explorer/testnet/tx/${tx}`;
-  c.status = "pagado";
+  c.status = "PAGADO";
   c.releaseTx = tx;
   c.releaseExplorerUrl = explorerUrl;
   c.paidAt = new Date().toISOString();
@@ -145,12 +141,12 @@ export function releaseCase(caseId: string) {
     success: true,
     data: {
       caseId: c.caseId,
-      status: "pagado",
+      status: "PAGADO",
       tx,
       explorerUrl,
       montoLiberado: c.montoRecompensa,
       receptor: c.informanteWallet,
-    }
+    },
   };
 }
 
@@ -163,7 +159,7 @@ export function getCaseProof(caseId: string) {
     evidenciaTimestamp: c.createdAt,
     explorerLinks: {
       evidencia: c.explorerUrl,
-      pago: c.releaseExplorerUrl || null,
-    }
+      pago: c.releaseExplorerUrl ?? null,
+    },
   };
 }
