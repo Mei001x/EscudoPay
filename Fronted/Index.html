@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Escudo · Red de Informantes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ================= VISTA 1: SELECCIÓN DE PERFIL ================= -->
+  <section class="view" id="view-profile" data-view="profile">
+   <div class="statusbar" style="justify-content:flex-end;">
+  <span id="clock">00:00:00</span>
+</div>
+
+<h1 class="hero-title">¿Con qué perfil ingresas?</h1>
+
+    <div class="profile-grid">
+      <button class="profile-card" id="btnPnp">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+        <span class="avatar-icon"><span class="head"></span><span class="body"></span></span>
+        <span class="profile-name">PNP / Fiscalía</span>
+        <span class="profile-desc">Personal autorizado que da seguimiento a los reportes</span>
+      </button>
+
+      <button class="profile-card" id="btnInformante">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+        <span class="avatar-icon"><span class="head"></span><span class="body"></span></span>
+        <span class="profile-name">Informante</span>
+        <span class="profile-desc">Reporta información sobre una persona requisitoriada</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ================= VISTA 2: ACCESO RESTRINGIDO (PNP) ================= -->
+  <section class="view" id="view-restricted" data-view="restricted">
+    <div class="panel narrow center-panel">
+      <span class="corner tl"></span><span class="corner tr"></span>
+      <span class="corner bl"></span><span class="corner br"></span>
+      <div class="lock-icon">🔒</div>
+      <div class="result-title" style="margin-bottom:10px;">Acceso reservado</div>
+      <p class="hero-sub" style="margin:0 0 22px;">Este panel es solo para personal verificado de la PNP y el Ministerio Público. Por ahora, continúa como informante para ver cómo funciona el reporte.</p>
+      <button class="ghost" id="btnBackFromRestricted">Volver</button>
+    </div>
+  </section>
+
+  <!-- ================= VISTA 3: LISTA DE BUSCADOS ================= -->
+  <section class="view" id="view-list" data-view="list">
+    <div class="statusbar">
+      <span><span class="dot"></span>CANAL SEGURO ACTIVO</span>
+      <span id="clock2">00:00:00</span>
+    </div>
+
+    <div class="list-head">
+      <h1 class="hero-title small">Lista de buscados</h1>
+      <button class="ghost small-btn" id="btnLogout">Cambiar perfil</button>
+    </div>
+
+    <div class="filters">
+      <input type="text" id="searchInput" class="search-input" placeholder="Buscar por alias o nombre…">
+      <select id="filterDepto" class="select-input">
+        <option value="">Departamento</option>
+      </select>
+      <select id="filterDelito" class="select-input">
+        <option value="">Tipo de delito</option>
+      </select>
+    </div>
+
+    <div class="wanted-grid" id="wantedGrid"></div>
+    <p class="empty-state" id="emptyState" style="display:none;">No hay resultados con esos filtros.</p>
+  </div>
+  </section>
+
+  <!-- ================= VISTA 4: DETALLE DEL BUSCADO ================= -->
+  <section class="view" id="view-detail" data-view="detail">
+    <div class="statusbar">
+      <span><span class="dot"></span>FICHA DE REQUISITORIA</span>
+      <button class="ghost small-btn" id="btnBackToList">← Volver a la lista</button>
+    </div>
+
+    <div class="detail-layout">
+      <div class="panel detail-photo-panel">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+        <span class="avatar-icon big" id="detailAvatar"><span class="head"></span><span class="body"></span></span>
+        <div class="detail-name" id="detailName">—</div>
+        <button class="primary" id="btnReport">Reportar información</button>
+      </div>
+
+      <div class="panel detail-info-panel">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+        <div class="info-row"><span class="k">Estado</span><span class="v" id="infoEstado">—</span></div>
+        <div class="info-row"><span class="k">Sexo</span><span class="v" id="infoSexo">—</span></div>
+        <div class="info-row"><span class="k">Lugar de requisitoria</span><span class="v" id="infoLugar">—</span></div>
+        <div class="info-row"><span class="k">Delito</span><span class="v" id="infoDelito">—</span></div>
+        <div class="info-row"><span class="k">Descripción</span><span class="v" id="infoDesc">—</span></div>
+        <div class="reward-box">
+          <span class="reward-label">Dinero por información</span>
+          <span class="reward-amount" id="infoRecompensa">—</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= VISTA 5: FORMULARIO DE REPORTE ================= -->
+  <section class="view" id="view-report" data-view="report">
+    <div class="statusbar">
+      <span><span class="dot"></span>REPORTE ANÓNIMO</span>
+      <button class="ghost small-btn" id="btnBackFromReport">← Cancelar</button>
+    </div>
+
+    <div class="panel">
+      <span class="corner tl"></span><span class="corner tr"></span>
+      <span class="corner bl"></span><span class="corner br"></span>
+
+      <div class="panel-head">
+        <span class="panel-title">Cuéntanos qué sabes sobre él</span>
+        <span class="panel-tag" id="reportTargetTag">—</span>
+      </div>
+
+      <textarea id="reportText" placeholder="Escribe todo el detalle que tengas: dónde lo viste, con quién anda, en qué se moviliza, cualquier dato útil. Tu identidad nunca se comparte."></textarea>
+      <div class="char-count"><span id="charCount">0</span> caracteres</div>
+
+      <div class="section-gap upload-grid">
+        <label class="upload-box" id="uploadImages">
+          <input type="file" id="fileImages" accept="image/*" multiple hidden>
+          <span class="upload-icon">🖼</span>
+          <span>Subir imágenes</span>
+          <span class="upload-count" id="countImages"></span>
+        </label>
+        <label class="upload-box" id="uploadAudio">
+          <input type="file" id="fileAudio" accept="audio/*" multiple hidden>
+          <span class="upload-icon">🎙</span>
+          <span>Subir audio</span>
+          <span class="upload-count" id="countAudio"></span>
+        </label>
+      </div>
+
+      <label class="upload-box wide" id="uploadVideo">
+        <input type="file" id="fileVideo" accept="video/*" multiple hidden>
+        <span class="upload-icon">🎬</span>
+        <span>Subir videos</span>
+        <span class="upload-count" id="countVideo"></span>
+      </label>
+
+      <button class="primary" id="btnSubmitReport">Subir información (todo)</button>
+      <div class="hint">Todo lo que envíes queda cifrado y no se vincula a tu identidad.</div>
+    </div>
+
+    <!-- estado de envío -->
+    <div class="progress-wrap" id="uploadProgress">
+      <div class="progress-label"><span>Subiendo información</span><span id="progressPct">0%</span></div>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+  </section>
+
+  <!-- ================= VISTA 6: AGRADECIMIENTO ================= -->
+  <section class="view" id="view-thanks" data-view="thanks">
+    <div class="panel narrow center-panel">
+      <span class="corner tl"></span><span class="corner tr"></span>
+      <span class="corner bl"></span><span class="corner br"></span>
+      <div class="check-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      </div>
+      <div class="success-title">Gracias por tu compromiso con el Perú</div>
+      <p class="hero-sub" style="margin:0 0 22px;">Tu reporte fue recibido de forma anónima y ya está en revisión. Si la información conduce a una captura, la recompensa se te notifica por el mismo canal seguro.</p>
+      <button class="primary" id="btnBackToListFromThanks">Volver a la lista de buscados</button>
+    </div>
+  </section>
+
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
