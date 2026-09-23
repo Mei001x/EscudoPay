@@ -62,6 +62,7 @@ model Verificador {
   createdAt         DateTime        @default(now())
 
   firmas            Firma[]
+  refreshTokens     RefreshToken[]
 }
 
 model Caso {
@@ -140,4 +141,15 @@ model StellarTransaction {
   // Esto se controla a nivel de aplicación (query antes de construir el XDR),
   // no a nivel de constraint de BD, porque el estado cambia con el tiempo.
   @@index([cuentaOrigen, status])
+}
+
+model RefreshToken {
+  id             String      @id @default(cuid())
+  verificadorId  String
+  verificador    Verificador @relation(fields: [verificadorId], references: [id])
+  tokenHash      String      @unique  // SHA-256 del token opaco — nunca el valor en claro
+  expiresAt      DateTime
+  createdAt      DateTime    @default(now())
+
+  @@index([verificadorId])
 }
