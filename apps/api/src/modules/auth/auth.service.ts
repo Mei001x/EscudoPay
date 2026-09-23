@@ -7,20 +7,31 @@ import {
   crearRefreshToken,
   buscarRefreshTokenPorHash,
   eliminarRefreshToken,
+  rotarRefreshToken,
 } from "./auth.repository";
 
-// ── Tipos internos ────────────────────────────────────────────
+// ── Tipos ─────────────────────────────────────────────────────
 
 export interface JwtPayload {
   verificadorId: string;
   rol: string;
 }
 
+/**
+ * login ya NO incluye refreshToken — el valor plano solo
+ * llega al controller para que lo setee en la cookie httpOnly.
+ */
 export interface LoginResult {
   accessToken: string;
-  refreshToken: string;
+  refreshTokenPlano: string; // solo para que el controller lo ponga en cookie
   rol: string;
   nombre: string;
+  expiresIn: number;
+}
+
+export interface RefreshResult {
+  accessToken: string;
+  refreshTokenPlano: string; // nuevo token rotado, para renovar la cookie
   expiresIn: number;
 }
 
@@ -33,8 +44,8 @@ function generarAccessToken(payload: JwtPayload): string {
 }
 
 /**
- * El refresh token es un valor opaco de 40 bytes aleatorios.
- * Solo se guarda su SHA-256 en BD — nunca el valor en claro.
+ * Genera un token opaco de 40 bytes.
+ * Devuelve el valor en claro (para la cookie) y su SHA-256 (para la BD).
  */
 function generarRefreshToken(): { token: string; hash: string } {
   const token = randomBytes(40).toString("hex");
@@ -42,8 +53,11 @@ function generarRefreshToken(): { token: string; hash: string } {
   return { token, hash };
 }
 
+function hashToken(tokenPlano: string): string {
+  return createHash("sha256").update(tokenPlano).digest("hex");
+}
+
 function refreshTokenExpiresAt(): Date {
-  // config.jwt.refreshExpires viene como "7d", "30d", etc.
   const raw = config.jwt.refreshExpires; // e.g. "7d"
   const match = raw.match(/^(\d+)([dhm])$/);
   const amount = match ? parseInt(match[1], 10) : 7;
@@ -57,6 +71,11 @@ function refreshTokenExpiresAt(): Date {
   return new Date(Date.now() + ms);
 }
 
+function calcularExpiresIn(accessToken: string): number {
+  const decoded = jwt.decode(accessToken) as any;
+  return decoded?.exp ? decoded.exp - Math.floor(Date.now() / 1000) : 3600;
+}
+
 // ── Casos de uso ─────────────────────────────────────────────
 
 export async function login(
@@ -65,7 +84,7 @@ export async function login(
 ): Promise<LoginResult> {
   const verificador = await buscarVerificadorPorCodigo(codigo);
 
-  // Mismo mensaje independientemente de si el código existe o no
+  // Mismo error para código inexistente o clave incorrecta
   // — evita enumerar verificadores válidos
   if (!verificador) {
     throw new Error("CREDENCIALES_INVALIDAS");
@@ -82,7 +101,7 @@ export async function login(
   };
 
   const accessToken = generarAccessToken(payload);
-  const { token: refreshToken, hash: tokenHash } = generarRefreshToken();
+  const { token: refreshTokenPlano, hash: tokenHash } = generarRefreshToken();
 
   await crearRefreshToken({
     verificadorId: verificador.id,
@@ -90,38 +109,39 @@ export async function login(
     expiresAt: refreshTokenExpiresAt(),
   });
 
-  // Access token expiry en segundos para la respuesta
-  const decoded = jwt.decode(accessToken) as any;
-  const expiresIn: number =
-    decoded?.exp ? decoded.exp - Math.floor(Date.now() / 1000) : 3600;
-
   return {
     accessToken,
-    refreshToken,
+    refreshTokenPlano, // el controller lo setea en cookie httpOnly
     rol: verificador.rol,
     nombre: verificador.nombre,
-    expiresIn,
+    expiresIn: calcularExpiresIn(accessToken),
   };
 }
 
 export async function refresh(
-  refreshTokenValue: string,
-): Promise<{ accessToken: string; expiresIn: number }> {
-  const tokenHash = createHash("sha256")
-    .update(refreshTokenValue)
-    .digest("hex");
-
-  const stored = await buscarRefreshTokenPorHash(tokenHash);
+  refreshTokenPlano: string,
+): Promise<RefreshResult> {
+  const tokenHashViejo = hashToken(refreshTokenPlano);
+  const stored = await buscarRefreshTokenPorHash(tokenHashViejo);
 
   if (!stored) {
     throw new Error("REFRESH_TOKEN_INVALIDO");
   }
 
   if (stored.expiresAt < new Date()) {
-    // Limpiamos el token expirado
-    await eliminarRefreshToken(tokenHash);
+    await eliminarRefreshToken(tokenHashViejo);
     throw new Error("REFRESH_TOKEN_EXPIRADO");
   }
+
+  // Rotar: emitir nuevo token y reemplazar el viejo en BD (atómico)
+  const { token: nuevoTokenPlano, hash: tokenHashNuevo } = generarRefreshToken();
+
+  await rotarRefreshToken({
+    tokenHashViejo,
+    verificadorId: stored.verificador.id,
+    tokenHashNuevo,
+    expiresAt: refreshTokenExpiresAt(),
+  });
 
   const payload: JwtPayload = {
     verificadorId: stored.verificador.id,
@@ -129,16 +149,15 @@ export async function refresh(
   };
 
   const accessToken = generarAccessToken(payload);
-  const decoded = jwt.decode(accessToken) as any;
-  const expiresIn: number =
-    decoded?.exp ? decoded.exp - Math.floor(Date.now() / 1000) : 3600;
 
-  return { accessToken, expiresIn };
+  return {
+    accessToken,
+    refreshTokenPlano: nuevoTokenPlano, // el controller renueva la cookie
+    expiresIn: calcularExpiresIn(accessToken),
+  };
 }
 
-export async function logout(refreshTokenValue: string): Promise<void> {
-  const tokenHash = createHash("sha256")
-    .update(refreshTokenValue)
-    .digest("hex");
+export async function logout(refreshTokenPlano: string): Promise<void> {
+  const tokenHash = hashToken(refreshTokenPlano);
   await eliminarRefreshToken(tokenHash);
 }
