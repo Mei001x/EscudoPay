@@ -6,6 +6,7 @@ import swaggerUi from "swagger-ui-express";
 import { config } from "./config/configuration";
 import { swaggerSpec } from "./config/swagger";
 import { healthRoutes } from "./modules/health/health.routes";
+import { reportsRoutes } from "./modules/cases/reports.routes";
 import { casesRoutes } from "./modules/cases/cases.routes";
 import { authRoutes } from "./modules/auth/auth.routes";
 
@@ -20,24 +21,24 @@ app.use(express.json());
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
-app.use("/api/reports", casesRoutes);
-app.use("/api/cases", casesRoutes);
+app.use("/api/reports", reportsRoutes);  // solo POST /api/reports
+app.use("/api/cases", casesRoutes);      // GET, GET/:id, /:id/verify, /:id/release, /:id/proof
 
-// Ruta Raíz
-app.get('/', (request, response) => {
+// Ruta raíz informativa
+app.get("/", (request, response) => {
   response.json({
-    description: 'Proyecto Clave Segura - API',
-    version: '1.0.0',
+    description: "Proyecto Clave Segura - API",
+    version: "1.0.0",
     author: [
       {
-        name: 'David Chavarria',
-        userGit: '@Dave0097-hdz'
-      }
+        name: "David Chavarria",
+        userGit: "@Dave0097-hdz",
+      },
     ],
     documentation: config.docs.urlDocs,
     api_endpoint: `http://localhost:${config.port}`,
-    environment: config.env
-  })
-})
+    environment: config.env,
+  });
+});
 
 export { httpServer };
