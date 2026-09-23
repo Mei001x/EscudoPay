@@ -1,165 +1,252 @@
 import { randomBytes } from "node:crypto";
+import type { EstadoCaso, RolVerificador } from "@prisma/client";
 import type { CreateReportRequest, VerifyRequest } from "./cases.types";
+import {
+  crearCaso,
+  obtenerCasoPorId,
+  listarCasos,
+  actualizarEstadoCaso,
+  actualizarEvidenciaAnclada,
+  actualizarDatosLiberacion,
+  actualizarMotivoRechazo,
+} from "./cases.repository";
+import { buscarOCrearInformante } from "../informantes/informantes.repository";
+import {
+  crearFirma,
+  contarFirmasValidas,
+  existeFirmaPorRol,
+} from "../firmas/firmas.repository";
 
-// ------------------------------------------------------------
-// Almacenamiento temporal en memoria — se reemplazará por
-// casos.repository.ts en la Tarea 2 (Prisma)
-// ------------------------------------------------------------
-const reports = new Map<string, any>();
+// ── Helpers ───────────────────────────────────────────────────
 
-export function createReport(data: CreateReportRequest) {
-  const caseId = `case_${randomBytes(3).toString("hex")}`;
-  const evidenciaAncladaTx = randomBytes(32).toString("hex");
-  const explorerUrl = `https://stellar.expert/explorer/testnet/tx/${evidenciaAncladaTx}`;
-  const createdAt = new Date().toISOString();
-  const claimableBalanceId = randomBytes(32).toString("hex");
-
-  const newCase = {
-    caseId,
-    status: "RECIBIDO",
-    informanteWallet: data.informanteWallet,
-    delitoTipo: data.delitoTipo,
-    descripcion: data.descripcion,
-    evidenciaHash: data.evidenciaHash ?? randomBytes(32).toString("hex"),
-    montoRecompensa: data.montoRecompensaSugerido ?? 5000,
-    evidenciaAncladaTx,
-    explorerUrl,
-    createdAt,
-    claimableBalanceId,
-    firmas: {
-      requeridas: 2,
-      obtenidas: 0,
-      detalle: [
-        { rol: "POLICIA", firmado: false, fecha: null, verificadorWallet: null },
-        { rol: "FISCALIA", firmado: false, fecha: null, verificadorWallet: null },
-      ],
-    },
-    releaseTx: null,
-    releaseExplorerUrl: null,
-    paidAt: null,
-    motivoRechazo: null,
-  };
-
-  reports.set(caseId, newCase);
-
+/**
+ * Simula el ancla de evidencia en Stellar (manageData).
+ * TODO Tarea 6 del spec: reemplazar por stellar.service.anclarEvidencia()
+ */
+function simularAnclaEvidencia(evidenciaHash: string): {
+  tx: string;
+  explorerUrl: string;
+  timestamp: Date;
+} {
+  const tx = randomBytes(32).toString("hex");
   return {
-    caseId,
-    status: newCase.status,
-    evidenciaAncladaTx: newCase.evidenciaAncladaTx,
-    explorerUrl: newCase.explorerUrl,
-    createdAt: newCase.createdAt,
+    tx,
+    explorerUrl: `https://stellar.expert/explorer/testnet/tx/${tx}`,
+    timestamp: new Date(),
   };
 }
 
-export function getAllCases(status?: string) {
-  let list = Array.from(reports.values());
-  if (status) {
-    // acepta tanto mayúsculas como minúsculas desde el query param
-    list = list.filter((c) => c.status === status.toUpperCase());
-  }
+/**
+ * Simula el submit a Horizon (claimClaimableBalance / payment).
+ * TODO Tarea 7 del spec: reemplazar por stellar.service.enviarTransaccion()
+ */
+function simularReleaseTx(): { tx: string; explorerUrl: string } {
+  const tx = randomBytes(32).toString("hex");
   return {
-    total: list.length,
-    casos: list.map((c) => ({
-      caseId: c.caseId,
+    tx,
+    explorerUrl: `https://stellar.expert/explorer/testnet/tx/${tx}`,
+  };
+}
+
+// ── Casos de uso ─────────────────────────────────────────────
+
+export async function createReport(data: CreateReportRequest) {
+  // 1. Upsert informante — se identifica solo por wallet
+  const informante = await buscarOCrearInformante(data.informanteWallet);
+
+  // 2. Crear caso en BD
+  const caso = await crearCaso({
+    informanteId: informante.id,
+    delitoTipo: data.delitoTipo,
+    descripcion: data.descripcion,
+    evidenciaHash: data.evidenciaHash ?? randomBytes(32).toString("hex"),
+    montoRecompensaSugerido: data.montoRecompensaSugerido ?? 5000,
+  });
+
+  // 3. Anclar evidencia en Stellar (simulado — Tarea 6 reemplaza esto)
+  const ancla = simularAnclaEvidencia(caso.evidenciaHash);
+  await actualizarEvidenciaAnclada(caso.id, {
+    evidenciaAncladaTx: ancla.tx,
+    evidenciaTimestamp: ancla.timestamp,
+  });
+
+  return {
+    caseId: caso.id,
+    status: caso.status,
+    evidenciaAncladaTx: ancla.tx,
+    explorerUrl: ancla.explorerUrl,
+    createdAt: caso.createdAt.toISOString(),
+  };
+}
+
+export async function getAllCases(status?: string) {
+  const filtroStatus = status
+    ? (status.toUpperCase() as EstadoCaso)
+    : undefined;
+
+  const casos = await listarCasos(filtroStatus);
+
+  return {
+    total: casos.length,
+    casos: casos.map((c) => ({
+      caseId: c.id,
       delitoTipo: c.delitoTipo,
       status: c.status,
-      montoRecompensa: c.montoRecompensa,
-      createdAt: c.createdAt,
+      montoRecompensa: c.montoRecompensaSugerido,
+      createdAt: c.createdAt.toISOString(),
     })),
   };
 }
 
-export function getCaseById(caseId: string) {
-  const c = reports.get(caseId);
+export async function getCaseById(caseId: string) {
+  const c = await obtenerCasoPorId(caseId);
   if (!c) return null;
+
+  const firmas = (c as any).firmas ?? [];
+  const firmasAprobadas = firmas.filter(
+    (f: any) => f.firmado && f.resultado === "APROBADO",
+  ).length;
+
   return {
-    caseId: c.caseId,
+    caseId: c.id,
     status: c.status,
-    firmas: c.firmas,
-    claimableBalanceId: c.claimableBalanceId,
-    montoRecompensa: c.montoRecompensa,
+    delitoTipo: c.delitoTipo,
+    evidenciaAncladaTx: c.evidenciaAncladaTx ?? null,
+    releaseTx: c.releaseTx ?? null,
+    montoRecompensa: c.montoRecompensaSugerido,
+    firmas: {
+      requeridas: c.firmasRequeridas,
+      obtenidas: firmasAprobadas,
+      detalle: firmas.map((f: any) => ({
+        rol: f.rol,
+        firmado: f.firmado,
+        resultado: f.resultado ?? null,
+        fecha: f.fecha?.toISOString() ?? null,
+      })),
+    },
+    stellarTransaction: (c as any).stellarTransaction
+      ? {
+        firmasAcumuladas: (c as any).stellarTransaction.firmasAcumuladas,
+        firmasRequeridas: (c as any).stellarTransaction.firmasRequeridas,
+        status: (c as any).stellarTransaction.status,
+      }
+      : null,
+    createdAt: c.createdAt.toISOString(),
   };
 }
 
-export function verifyCase(caseId: string, data: VerifyRequest) {
-  const c = reports.get(caseId);
-  if (!c) return { error: "not_found" };
+export async function verifyCase(
+  caseId: string,
+  data: VerifyRequest,
+  verificadorId?: string,
+) {
+  const c = await obtenerCasoPorId(caseId);
+  if (!c) return { error: "not_found" as const };
+
+  // Verificar que el caso está en un estado que admite firma
+  if (c.status === "PAGADO" || c.status === "RECHAZADO") {
+    return { error: "invalid_status" as const };
+  }
+
+  // Verificar que este rol no haya firmado ya (constraint @@unique en BD)
+  const yaFirmo = await existeFirmaPorRol(caseId, data.rol as RolVerificador);
+  if (yaFirmo) {
+    return { error: "already_signed" as const };
+  }
 
   if (data.resultado === "RECHAZADO") {
-    c.status = "RECHAZADO";
-    c.motivoRechazo = data.motivo ?? "Rechazado por el verificador";
+    await actualizarMotivoRechazo(caseId, data.motivo ?? "Rechazado por el verificador");
+    await crearFirma({
+      casoId: caseId,
+      verificadorId,
+      rol: data.rol as RolVerificador,
+      resultado: "RECHAZADO",
+      signedXDR: data.signedXDR,
+    });
+
     return {
-      success: true,
+      success: true as const,
       data: {
-        caseId: c.caseId,
-        status: "RECHAZADO",
-        motivo: c.motivoRechazo,
+        caseId,
+        status: "RECHAZADO" as EstadoCaso,
+        motivo: data.motivo ?? "Rechazado por el verificador",
       },
     };
   }
 
-  // APROBADO — marcar la firma del rol correspondiente
-  const firmaSlot = c.firmas.detalle.find((f: any) => f.rol === data.rol);
-  if (firmaSlot && !firmaSlot.firmado) {
-    firmaSlot.firmado = true;
-    firmaSlot.fecha = new Date().toISOString();
-    firmaSlot.verificadorWallet = data.verificadorWallet;
-    c.firmas.obtenidas += 1;
-  }
+  // APROBADO — guardar la firma
+  await crearFirma({
+    casoId: caseId,
+    verificadorId,
+    rol: data.rol as RolVerificador,
+    resultado: "APROBADO",
+    signedXDR: data.signedXDR,
+  });
 
-  const humanasFirmadas: number = c.firmas.detalle.filter(
-    (f: any) => (f.rol === "POLICIA" || f.rol === "FISCALIA") && f.firmado,
-  ).length;
+  // Contar firmas aprobadas acumuladas
+  const firmasAprobadas = await contarFirmasValidas(caseId);
+  const nuevoEstado: EstadoCaso =
+    firmasAprobadas >= c.firmasRequeridas
+      ? "LISTO_PARA_LIBERAR"
+      : "EN_VERIFICACION";
 
-  c.status = humanasFirmadas >= 2 ? "LISTO_PARA_LIBERAR" : "EN_VERIFICACION";
+  await actualizarEstadoCaso(caseId, nuevoEstado);
 
   return {
-    success: true,
+    success: true as const,
     data: {
-      caseId: c.caseId,
-      status: c.status,
-      firmasObtenidas: humanasFirmadas,
-      firmasRequeridas: c.firmas.requeridas,
+      caseId,
+      status: nuevoEstado,
+      firmasObtenidas: firmasAprobadas,
+      firmasRequeridas: c.firmasRequeridas,
     },
   };
 }
 
-export function releaseCase(caseId: string) {
-  const c = reports.get(caseId);
-  if (!c) return { error: "not_found" };
-  if (c.status === "PAGADO") return { error: "already_paid" };
-  if (c.status !== "LISTO_PARA_LIBERAR") return { error: "not_ready" };
+export async function releaseCase(caseId: string) {
+  const c = await obtenerCasoPorId(caseId);
+  if (!c) return { error: "not_found" as const };
+  if (c.status === "PAGADO") return { error: "already_paid" as const };
+  if (c.status !== "LISTO_PARA_LIBERAR") return { error: "not_ready" as const };
 
-  const tx = randomBytes(32).toString("hex");
-  const explorerUrl = `https://stellar.expert/explorer/testnet/tx/${tx}`;
-  c.status = "PAGADO";
-  c.releaseTx = tx;
-  c.releaseExplorerUrl = explorerUrl;
-  c.paidAt = new Date().toISOString();
+  // Simular submit a Horizon (Tarea 7 reemplaza esto con Stellar real)
+  const release = simularReleaseTx();
+
+  await actualizarDatosLiberacion(caseId, {
+    releaseTx: release.tx,
+    releaseExplorerUrl: release.explorerUrl,
+    releasedAt: new Date(),
+  });
+
+  const informanteWallet = (c as any).informante?.walletPublicKey ?? null;
 
   return {
-    success: true,
+    success: true as const,
     data: {
-      caseId: c.caseId,
-      status: "PAGADO",
-      tx,
-      explorerUrl,
-      montoLiberado: c.montoRecompensa,
-      receptor: c.informanteWallet,
+      caseId,
+      status: "PAGADO" as EstadoCaso,
+      tx: release.tx,
+      explorerUrl: release.explorerUrl,
+      montoLiberado: c.montoRecompensaSugerido,
+      receptor: informanteWallet,
     },
   };
 }
 
-export function getCaseProof(caseId: string) {
-  const c = reports.get(caseId);
+export async function getCaseProof(caseId: string) {
+  const c = await obtenerCasoPorId(caseId);
   if (!c) return null;
 
   return {
     evidenciaHash: c.evidenciaHash,
-    evidenciaTimestamp: c.createdAt,
+    evidenciaTimestamp: c.evidenciaTimestamp?.toISOString() ?? null,
     explorerLinks: {
-      evidencia: c.explorerUrl,
-      pago: c.releaseExplorerUrl ?? null,
+      evidencia: c.evidenciaAncladaTx
+        ? `https://stellar.expert/explorer/testnet/tx/${c.evidenciaAncladaTx}`
+        : null,
+      pago: c.releaseTx
+        ? `https://stellar.expert/explorer/testnet/tx/${c.releaseTx}`
+        : null,
     },
   };
 }

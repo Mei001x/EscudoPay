@@ -2,6 +2,8 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import * as casesService from "./cases.service";
 
+// ── Schemas ───────────────────────────────────────────────────
+
 const createReportSchema = z.object({
   informanteWallet: z.string().min(1),
   delitoTipo: z.string().min(1),
@@ -10,10 +12,20 @@ const createReportSchema = z.object({
   montoRecompensaSugerido: z.number().nonnegative().optional(),
 });
 
-export function createReportHandler(req: Request, res: Response): void {
+const verifySchema = z.object({
+  rol: z.enum(["POLICIA", "FISCALIA"]),
+  verificadorWallet: z.string().min(1),
+  resultado: z.enum(["APROBADO", "RECHAZADO"]),
+  signedXDR: z.string().optional(),
+  motivo: z.string().optional(),
+});
+
+// ── Handlers ─────────────────────────────────────────────────
+
+export async function createReportHandler(req: Request, res: Response): Promise<void> {
   try {
     const validated = createReportSchema.parse(req.body);
-    const result = casesService.createReport(validated);
+    const result = await casesService.createReport(validated);
     res.status(201).json(result);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -24,20 +36,20 @@ export function createReportHandler(req: Request, res: Response): void {
   }
 }
 
-export function getCasesHandler(req: Request, res: Response): void {
+export async function getCasesHandler(req: Request, res: Response): Promise<void> {
   try {
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
-    const result = casesService.getAllCases(status);
+    const result = await casesService.getAllCases(status);
     res.status(200).json(result);
   } catch (error) {
     res.status(500).json({ error: "Error al listar casos" });
   }
 }
 
-export function getCaseByIdHandler(req: Request, res: Response): void {
+export async function getCaseByIdHandler(req: Request, res: Response): Promise<void> {
   try {
     const id = String(req.params.id);
-    const result = casesService.getCaseById(id);
+    const result = await casesService.getCaseById(id);
     if (!result) {
       res.status(404).json({ error: "Caso no encontrado" });
       return;
@@ -48,22 +60,24 @@ export function getCaseByIdHandler(req: Request, res: Response): void {
   }
 }
 
-const verifySchema = z.object({
-  rol: z.enum(["POLICIA", "FISCALIA"]),
-  verificadorWallet: z.string().min(1),
-  resultado: z.enum(["APROBADO", "RECHAZADO"]),
-  signedXDR: z.string().optional(),
-  motivo: z.string().optional(),
-});
-
-export function verifyCaseHandler(req: Request, res: Response): void {
+export async function verifyCaseHandler(req: Request, res: Response): Promise<void> {
   try {
     const id = String(req.params.id);
     const validated = verifySchema.parse(req.body);
-    const result = casesService.verifyCase(id, validated);
+
+    // verificadorId viene del JWT via authMiddleware (req.verificadorId)
+    const result = await casesService.verifyCase(id, validated, req.verificadorId);
 
     if (result.error === "not_found") {
       res.status(404).json({ error: "Caso no encontrado" });
+      return;
+    }
+    if (result.error === "already_signed") {
+      res.status(409).json({ error: "Este rol ya firmó el caso" });
+      return;
+    }
+    if (result.error === "invalid_status") {
+      res.status(400).json({ error: "El caso no admite más firmas en su estado actual" });
       return;
     }
     res.status(200).json(result.data);
@@ -76,10 +90,10 @@ export function verifyCaseHandler(req: Request, res: Response): void {
   }
 }
 
-export function releaseCaseHandler(req: Request, res: Response): void {
+export async function releaseCaseHandler(req: Request, res: Response): Promise<void> {
   try {
     const id = String(req.params.id);
-    const result = casesService.releaseCase(id);
+    const result = await casesService.releaseCase(id);
 
     if (result.error === "not_found") {
       res.status(404).json({ error: "Caso no encontrado" });
@@ -93,17 +107,16 @@ export function releaseCaseHandler(req: Request, res: Response): void {
       res.status(400).json({ error: "El caso aún no cuenta con las firmas requeridas (LISTO_PARA_LIBERAR)" });
       return;
     }
-
     res.status(200).json(result.data);
   } catch (error) {
     res.status(500).json({ error: "Error al liberar pago" });
   }
 }
 
-export function getCaseProofHandler(req: Request, res: Response): void {
+export async function getCaseProofHandler(req: Request, res: Response): Promise<void> {
   try {
     const id = String(req.params.id);
-    const result = casesService.getCaseProof(id);
+    const result = await casesService.getCaseProof(id);
     if (!result) {
       res.status(404).json({ error: "Caso no encontrado" });
       return;

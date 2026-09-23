@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { authMiddleware, requireRol } from "../../middlewares/auth.middleware";
 import {
   getCasesHandler,
   getCaseByIdHandler,
@@ -9,15 +10,23 @@ import {
 
 const casesRoutes = Router();
 
-// GET    /api/cases          — lista de casos (dashboard verificador)
+// Rutas públicas (no requieren JWT)
 casesRoutes.get("/", getCasesHandler);
-// GET    /api/cases/:id      — detalle de un caso
 casesRoutes.get("/:id", getCaseByIdHandler);
-// POST   /api/cases/:id/verify  — verificador firma
-casesRoutes.post("/:id/verify", verifyCaseHandler);
-// POST   /api/cases/:id/release — liberar pago
-casesRoutes.post("/:id/release", releaseCaseHandler);
-// GET    /api/cases/:id/proof   — prueba pública para el demo
 casesRoutes.get("/:id/proof", getCaseProofHandler);
+
+// Rutas protegidas — requieren JWT válido de POLICIA o FISCALIA
+casesRoutes.post(
+  "/:id/verify",
+  authMiddleware,
+  requireRol("POLICIA", "FISCALIA"),
+  verifyCaseHandler,
+);
+casesRoutes.post(
+  "/:id/release",
+  authMiddleware,
+  requireRol("POLICIA", "FISCALIA"),
+  releaseCaseHandler,
+);
 
 export { casesRoutes };
