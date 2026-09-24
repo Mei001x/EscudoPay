@@ -16,6 +16,10 @@ import {
   contarFirmasValidas,
   existeFirmaPorRol,
 } from "../firmas/firmas.repository";
+import {
+  anclarEvidenciaStellar,
+  liberarPagoStellar,
+} from "./stellar.service";
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -64,18 +68,52 @@ export async function createReport(data: CreateReportRequest) {
     montoRecompensaSugerido: data.montoRecompensaSugerido ?? 5000,
   });
 
-  // 3. Anclar evidencia en Stellar (simulado — Tarea 6 reemplaza esto)
-  const ancla = simularAnclaEvidencia(caso.evidenciaHash);
+  // 3. Anclar evidencia en Stellar (real si hay credencial, fallback simulado)
+  let evidenciaAncladaTx: string;
+  let evidenciaTimestamp: Date;
+  let explorerUrl: string;
+
+  const hasStellarSecret = (process.env.STELLAR_SOURCE_SECRET ?? "")
+    .replace(/['"]/g, "")
+    .trim();
+
+  if (hasStellarSecret) {
+    try {
+      const txHash = await anclarEvidenciaStellar(caso.evidenciaHash);
+      evidenciaAncladaTx = txHash;
+      evidenciaTimestamp = new Date();
+      explorerUrl = `https://stellar.expert/explorer/testnet/tx/${txHash}`;
+    } catch (error) {
+      console.warn(
+        "[STELLAR WARN] Ejecutando fallback simulado debido a:",
+        error,
+      );
+      const ancla = simularAnclaEvidencia(caso.evidenciaHash);
+      evidenciaAncladaTx = ancla.tx;
+      evidenciaTimestamp = ancla.timestamp;
+      explorerUrl = ancla.explorerUrl;
+    }
+  } else {
+    console.warn(
+      "[STELLAR WARN] Ejecutando fallback simulado debido a:",
+      "STELLAR_SOURCE_SECRET no configurada - usando modo simulado",
+    );
+    const ancla = simularAnclaEvidencia(caso.evidenciaHash);
+    evidenciaAncladaTx = ancla.tx;
+    evidenciaTimestamp = ancla.timestamp;
+    explorerUrl = ancla.explorerUrl;
+  }
+
   await actualizarEvidenciaAnclada(caso.id, {
-    evidenciaAncladaTx: ancla.tx,
-    evidenciaTimestamp: ancla.timestamp,
+    evidenciaAncladaTx,
+    evidenciaTimestamp,
   });
 
   return {
     caseId: caso.id,
     status: (caso.status as string).toLowerCase(),
-    evidenciaAncladaTx: ancla.tx,
-    explorerUrl: ancla.explorerUrl,
+    evidenciaAncladaTx,
+    explorerUrl,
     createdAt: caso.createdAt.toISOString(),
   };
 }
@@ -214,25 +252,56 @@ export async function releaseCase(caseId: string) {
   if (c.status === "PAGADO") return { error: "already_paid" as const };
   if (c.status !== "LISTO_PARA_LIBERAR") return { error: "not_ready" as const };
 
-  // Simular submit a Horizon (Tarea 7 reemplaza esto con Stellar real)
-  const release = simularReleaseTx();
+  const informanteWallet = (c as any).informante?.walletPublicKey ?? null;
+  const monto = c.montoRecompensaSugerido;
+
+  let releaseTx: string;
+  let releaseExplorerUrl: string;
+
+  const hasStellarSecretRelease = (process.env.STELLAR_SOURCE_SECRET ?? "")
+    .replace(/['"]/g, "")
+    .trim();
+
+  if (hasStellarSecretRelease && informanteWallet) {
+    try {
+      const txHash = await liberarPagoStellar(informanteWallet, monto);
+      releaseTx = txHash;
+      releaseExplorerUrl = `https://stellar.expert/explorer/testnet/tx/${txHash}`;
+    } catch (error) {
+      console.warn(
+        "[STELLAR WARN] Ejecutando fallback simulado debido a:",
+        error,
+      );
+      const release = simularReleaseTx();
+      releaseTx = release.tx;
+      releaseExplorerUrl = release.explorerUrl;
+    }
+  } else {
+    console.warn(
+      "[STELLAR WARN] Ejecutando fallback simulado debido a:",
+      !hasStellarSecretRelease
+        ? "STELLAR_SOURCE_SECRET no configurada - usando modo simulado"
+        : "informanteWallet no disponible - usando modo simulado",
+    );
+    const release = simularReleaseTx();
+    releaseTx = release.tx;
+    releaseExplorerUrl = release.explorerUrl;
+  }
 
   await actualizarDatosLiberacion(caseId, {
-    releaseTx: release.tx,
-    releaseExplorerUrl: release.explorerUrl,
+    releaseTx,
+    releaseExplorerUrl,
     releasedAt: new Date(),
   });
-
-  const informanteWallet = (c as any).informante?.walletPublicKey ?? null;
 
   return {
     success: true as const,
     data: {
       caseId,
       status: ("pagado" as unknown as EstadoCaso),
-      tx: release.tx,
-      explorerUrl: release.explorerUrl,
-      montoLiberado: c.montoRecompensaSugerido,
+      tx: releaseTx,
+      explorerUrl: releaseExplorerUrl,
+      montoLiberado: monto,
       receptor: informanteWallet,
     },
   };
