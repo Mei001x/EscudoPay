@@ -6,16 +6,25 @@ import * as casesService from "./cases.service";
 
 const createReportSchema = z.object({
   informanteWallet: z.string().min(1),
-  delitoTipo: z.string().min(1),
+  delitoTipo: z
+    .string()
+    .min(1)
+    .transform((v) => v.toUpperCase()),
   descripcion: z.string().min(1),
   evidenciaHash: z.string().optional(),
   montoRecompensaSugerido: z.number().nonnegative().optional(),
 });
 
 const verifySchema = z.object({
-  rol: z.enum(["POLICIA", "FISCALIA"]),
+  rol: z
+    .string()
+    .transform((v) => v.toUpperCase())
+    .pipe(z.enum(["POLICIA", "FISCALIA"])),
   verificadorWallet: z.string().min(1),
-  resultado: z.enum(["APROBADO", "RECHAZADO"]),
+  resultado: z
+    .string()
+    .transform((v) => v.toUpperCase())
+    .pipe(z.enum(["APROBADO", "RECHAZADO"])),
   signedXDR: z.string().optional(),
   motivo: z.string().optional(),
 });

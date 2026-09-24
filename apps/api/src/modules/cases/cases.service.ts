@@ -54,10 +54,11 @@ export async function createReport(data: CreateReportRequest) {
   // 1. Upsert informante — se identifica solo por wallet
   const informante = await buscarOCrearInformante(data.informanteWallet);
 
-  // 2. Crear caso en BD
+  // 2. Crear caso en BD — normalizar enum a mayúsculas para Prisma
+  const delitoTipoNorm = data.delitoTipo?.toUpperCase() as any;
   const caso = await crearCaso({
     informanteId: informante.id,
-    delitoTipo: data.delitoTipo,
+    delitoTipo: delitoTipoNorm,
     descripcion: data.descripcion,
     evidenciaHash: data.evidenciaHash ?? randomBytes(32).toString("hex"),
     montoRecompensaSugerido: data.montoRecompensaSugerido ?? 5000,
@@ -72,7 +73,7 @@ export async function createReport(data: CreateReportRequest) {
 
   return {
     caseId: caso.id,
-    status: caso.status,
+    status: (caso.status as string).toLowerCase(),
     evidenciaAncladaTx: ancla.tx,
     explorerUrl: ancla.explorerUrl,
     createdAt: caso.createdAt.toISOString(),
@@ -90,8 +91,8 @@ export async function getAllCases(status?: string) {
     total: casos.length,
     casos: casos.map((c) => ({
       caseId: c.id,
-      delitoTipo: c.delitoTipo,
-      status: c.status,
+      delitoTipo: (c.delitoTipo as unknown as string).toLowerCase(),
+      status: (c.status as string).toLowerCase(),
       montoRecompensa: c.montoRecompensaSugerido,
       createdAt: c.createdAt.toISOString(),
     })),
@@ -109,8 +110,8 @@ export async function getCaseById(caseId: string) {
 
   return {
     caseId: c.id,
-    status: c.status,
-    delitoTipo: c.delitoTipo,
+    status: (c.status as string).toLowerCase(),
+    delitoTipo: (c.delitoTipo as unknown as string).toLowerCase(),
     evidenciaAncladaTx: c.evidenciaAncladaTx ?? null,
     releaseTx: c.releaseTx ?? null,
     montoRecompensa: c.montoRecompensaSugerido,
@@ -118,9 +119,9 @@ export async function getCaseById(caseId: string) {
       requeridas: c.firmasRequeridas,
       obtenidas: firmasAprobadas,
       detalle: firmas.map((f: any) => ({
-        rol: f.rol,
+        rol: (f.rol as string)?.toLowerCase() ?? null,
         firmado: f.firmado,
-        resultado: f.resultado ?? null,
+        resultado: f.resultado ? (f.resultado as string).toLowerCase() : null,
         fecha: f.fecha?.toISOString() ?? null,
       })),
     },
@@ -148,18 +149,22 @@ export async function verifyCase(
     return { error: "invalid_status" as const };
   }
 
+  // Normalizar rol y resultado a mayúsculas para Prisma (bidireccional)
+  const rolNorm = (data.rol as string).toUpperCase() as RolVerificador;
+  const resultadoNorm = (data.resultado as string).toUpperCase();
+
   // Verificar que este rol no haya firmado ya (constraint @@unique en BD)
-  const yaFirmo = await existeFirmaPorRol(caseId, data.rol as RolVerificador);
+  const yaFirmo = await existeFirmaPorRol(caseId, rolNorm);
   if (yaFirmo) {
     return { error: "already_signed" as const };
   }
 
-  if (data.resultado === "RECHAZADO") {
+  if (resultadoNorm === "RECHAZADO") {
     await actualizarMotivoRechazo(caseId, data.motivo ?? "Rechazado por el verificador");
     await crearFirma({
       casoId: caseId,
       verificadorId,
-      rol: data.rol as RolVerificador,
+      rol: rolNorm,
       resultado: "RECHAZADO",
       signedXDR: data.signedXDR,
     });
@@ -168,7 +173,7 @@ export async function verifyCase(
       success: true as const,
       data: {
         caseId,
-        status: "RECHAZADO" as EstadoCaso,
+        status: ("rechazado" as unknown as EstadoCaso),
         motivo: data.motivo ?? "Rechazado por el verificador",
       },
     };
@@ -178,7 +183,7 @@ export async function verifyCase(
   await crearFirma({
     casoId: caseId,
     verificadorId,
-    rol: data.rol as RolVerificador,
+    rol: rolNorm,
     resultado: "APROBADO",
     signedXDR: data.signedXDR,
   });
@@ -196,7 +201,7 @@ export async function verifyCase(
     success: true as const,
     data: {
       caseId,
-      status: nuevoEstado,
+      status: (nuevoEstado as unknown as string).toLowerCase() as EstadoCaso,
       firmasObtenidas: firmasAprobadas,
       firmasRequeridas: c.firmasRequeridas,
     },
@@ -224,7 +229,7 @@ export async function releaseCase(caseId: string) {
     success: true as const,
     data: {
       caseId,
-      status: "PAGADO" as EstadoCaso,
+      status: ("pagado" as unknown as EstadoCaso),
       tx: release.tx,
       explorerUrl: release.explorerUrl,
       montoLiberado: c.montoRecompensaSugerido,
