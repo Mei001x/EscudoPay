@@ -15,9 +15,10 @@ Plataforma para la gestión verificable de denuncias ciudadanas y desembolso de 
 9. [Configuración](#9-configuración)
 10. [Instalación y desarrollo](#10-instalación-y-desarrollo)
 11. [Testing](#11-testing)
-12. [Construcción y despliegue](#12-construcción-y-despliegue)
-13. [Consideraciones operativas y de seguridad](#13-consideraciones-operativas-y-de-seguridad)
-14. [Limitaciones y trabajo futuro](#14-limitaciones-y-trabajo-futuro)
+12. [Pruebas On-Chain en Stellar Testnet (Backend E2E)](#12-pruebas-on-chain-en-stellar-testnet-backend-e2e)
+13. [Construcción y despliegue](#13-construcción-y-despliegue)
+14. [Consideraciones operativas y de seguridad](#14-consideraciones-operativas-y-de-seguridad)
+15. [Limitaciones y trabajo futuro](#15-limitaciones-y-trabajo-futuro)
 
 ---
 
@@ -278,7 +279,216 @@ pnpm --filter api test
 
 Colecciones manuales: `test.http` (REST Client) y `test-cases.sh`.
 
-## 12. Construcción y despliegue
+## 12. Pruebas On-Chain en Stellar Testnet (Backend E2E)
+
+Esta sección describe el procedimiento para ejecutar el flujo completo del backend contra la red Stellar Testnet con transacciones reales. Cuando las variables de Stellar están configuradas y la cuenta custodia dispone de fondos, las operaciones dejan de usar el fallback simulado y generan transacciones verificables en `stellar.expert`.
+
+### 12.1 Configuración de variables de entorno
+
+Duplicar la plantilla de entorno en las dos ubicaciones requeridas por el proyecto (la API resuelve `apps/api/.env` de forma prioritaria y hace fallback a `.env` en la raíz del repositorio):
+
+```bash
+cp apps/api/.env.example apps/api/.env
+cp apps/api/.env.example .env
+```
+
+Editar ambos archivos y completar los parámetros de Stellar. Los valores por defecto de Horizon y passphrase ya están incluidos en `.env.example`; es obligatorio configurar el par de claves de la cuenta custodia:
+
+```ini
+STELLAR_HORIZON_URL="https://horizon-testnet.stellar.org"
+STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
+STELLAR_SOURCE_PUBLIC="G..."
+STELLAR_SOURCE_SECRET="S..."
+```
+
+Donde:
+
+* `STELLAR_HORIZON_URL`: endpoint de Horizon. Para Testnet debe ser `https://horizon-testnet.stellar.org`.
+* `STELLAR_NETWORK_PASSPHRASE`: passphrase de la red. Para Testnet es exactamente `Test SDF Network ; September 2015`.
+* `STELLAR_SOURCE_PUBLIC`: clave pública `G...` de la cuenta custodia que financiará los pagos. Se deriva de `STELLAR_SOURCE_SECRET`.
+* `STELLAR_SOURCE_SECRET`: clave secreta `S...` de la cuenta custodia. El servicio limpia comillas accidentales con `.replace(/['"]/g,"").trim()` antes de derivar el `Keypair`.
+
+Generación del par de claves: crear una wallet en Freighter (extensión de navegador) o ejecutar localmente:
+
+```bash
+node -e "const m=require('./apps/api/node_modules/@stellar/stellar-sdk'); const kp=m.Keypair.random(); console.log('PUBLIC:',kp.publicKey()); console.log('SECRET:',kp.secret())"
+```
+
+Fondeo de la cuenta custodia con 10.000 XLM de prueba mediante Friendbot (faucet oficial de Testnet):
+
+```
+https://friendbot.stellar.org?addr=TU_PUBLIC_KEY_G
+```
+
+Ejemplo:
+
+```
+https://friendbot.stellar.org?addr=GDQJUTQYK2MQX2VGDR2FYWLIYAQIEGXTQVTFEMGH2BEWFG4BRUY4CKI7
+```
+
+Verificar el fondeo:
+
+```bash
+curl -s "https://horizon-testnet.stellar.org/accounts/GDQJUTQYK2MQX2VGDR2FYWLIYAQIEGXTQVTFEMGH2BEWFG4BRUY4CKI7" | jq '.balances'
+```
+
+Debe retornar un balance `asset_type: native` con `balance: "10000.0000000"`. Sin este fondeo, `stellar.service` capturará el error `Not Found`/`op_underfunded` y el backend degradará automáticamente al fallback simulado, registrando `console.warn("[STELLAR WARN] Ejecutando fallback simulado debido a:", error)` sin interrumpir la API.
+
+Tras editar los `.env`, reiniciar la API para recargar el entorno:
+
+```bash
+pnpm --filter api dev
+# logs esperados: [STELLAR] Iniciando transacción real en Testnet... / [STELLAR] Usando cuenta: G...
+```
+
+### 12.2 Flujo completo de prueba E2E vía cURL
+
+Base URL por defecto: `http://localhost:4000`. Si la API se expone en otro host, ajustar `BASE_URL`.
+
+Pre-requisito: API y PostgreSQL en ejecución, cuenta custodia fondeada. `informanteWallet` en todos los pasos debe ser una clave pública válida `G...` generada en Freighter o mediante `Keypair.random()` — es la cuenta que recibirá el pago final y permite comprobar el saldo en Freighter.
+
+#### Paso 1 — Crear denuncia y anclar evidencia on-chain
+
+```bash
+BASE_URL="http://localhost:4000"
+
+curl -s -X POST "$BASE_URL/api/reports" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "informanteWallet": "GDQJUTQYK2MQX2VGDR2FYWLIYAQIEGXTQVTFEMGH2BEWFG4BRUY4CKI7",
+    "delitoTipo": "extorsion",
+    "descripcion": "Ubicación de sospechoso vinculado a cobro de cupo",
+    "montoRecompensaSugerido": 5000
+  }' | jq
+```
+
+Respuesta esperada `201`:
+
+```json
+{
+  "caseId": "cm...",
+  "status": "recibido",
+  "evidenciaAncladaTx": "abc123...",
+  "explorerUrl": "https://stellar.expert/explorer/testnet/tx/abc123...",
+  "createdAt": "2026-09-24T00:00:00.000Z"
+}
+```
+
+Con credenciales válidas y cuenta fondeada, `evidenciaAncladaTx` es el hash real de la transacción `manageData` en Testnet. Los logs del backend mostrarán `[STELLAR] Iniciando transacción real en Testnet...`. Sin credenciales, se retorna un hash simulado y se loguea `[STELLAR WARN] Ejecutando fallback simulado debido a: STELLAR_SOURCE_SECRET no configurada`.
+
+Capturar el `caseId` para los pasos siguientes:
+
+```bash
+CASE_ID=$(curl -s -X POST "$BASE_URL/api/reports" \
+  -H "Content-Type: application/json" \
+  -d '{"informanteWallet":"GDQJUTQYK2MQX2VGDR2FYWLIYAQIEGXTQVTFEMGH2BEWFG4BRUY4CKI7","delitoTipo":"extorsion","descripcion":"Ubicación de sospechoso vinculado a cobro de cupo"}' | jq -r '.caseId')
+echo $CASE_ID
+```
+
+#### Paso 2 — Firma de verificación de la Policía
+
+```bash
+curl -s -X POST "$BASE_URL/api/cases/$CASE_ID/verify" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rol": "policia",
+    "verificadorWallet": "GC_POLICIA_WALLET_DEMO_123",
+    "resultado": "APROBADO"
+  }' | jq
+```
+
+Respuesta esperada `200`:
+
+```json
+{
+  "caseId": "cm...",
+  "status": "en_verificacion",
+  "firmasObtenidas": 1,
+  "firmasRequeridas": 2
+}
+```
+
+El campo `rol` es case-insensitive (`policia`/`POLICIA`). El backend normaliza a mayúsculas antes de persistir y retorna el estado en minúsculas para cumplir el contrato.
+
+#### Paso 3 — Firma de verificación de la Fiscalía
+
+```bash
+curl -s -X POST "$BASE_URL/api/cases/$CASE_ID/verify" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rol": "fiscalia",
+    "verificadorWallet": "GBZXN7PIRZGNMHGA7MUUUF4GWPY5AYPV6LY4UV2GL6VJGIQRXFDNMADI",
+    "resultado": "APROBADO"
+  }' | jq
+```
+
+Respuesta esperada `200`:
+
+```json
+{
+  "caseId": "cm...",
+  "status": "listo_para_liberar",
+  "firmasObtenidas": 2,
+  "firmasRequeridas": 2
+}
+```
+
+Al alcanzar el quórum (2/2), el caso transita a `listo_para_liberar` y queda habilitado para desembolso.
+
+#### Paso 4 — Liberación y pago on-chain de la recompensa
+
+```bash
+curl -s -X POST "$BASE_URL/api/cases/$CASE_ID/release" \
+  -H "Content-Type: application/json" \
+  -d '{}' | jq
+```
+
+Respuesta esperada `200`:
+
+```json
+{
+  "caseId": "cm...",
+  "status": "pagado",
+  "tx": "def456...",
+  "explorerUrl": "https://stellar.expert/explorer/testnet/tx/def456...",
+  "montoLiberado": 5000,
+  "receptor": "GDQJUTQYK2MQX2VGDR2FYWLIYAQIEGXTQVTFEMGH2BEWFG4BRUY4CKI7"
+}
+```
+
+Con configuración Stellar válida, `tx` es el hash real de la operación `payment` con `Asset.native()` y `monto.toFixed(7)` (precisión XLM). El servicio carga la cuenta custodia fresca con `server.loadAccount(publicKey)` para evitar `tx_bad_seq` y usa `setTimeout(180)`. En caso de error (`tx_bad_seq`, `op_underfunded`, `Not Found`), se loguea `console.error("[STELLAR ERROR]", extras.result_codes)` y se degrada a hash simulado sin retornar `500`.
+
+#### Paso 5 — Verificación y auditoría pública
+
+Abrir en el navegador las URLs retornadas en los pasos 1 y 4:
+
+```
+https://stellar.expert/explorer/testnet/tx/{evidenciaAncladaTx}
+https://stellar.expert/explorer/testnet/tx/{tx}
+```
+
+Comprobaciones:
+
+* En la transacción de evidencia, verificar `Operation: manageData` con `name: evidenciaHash` y `value` truncado a 64 bytes.
+* En la transacción de pago, verificar `Operation: payment` con `asset: XLM`, `amount: 5000.0000000` y `destination` igual a `informanteWallet`.
+* En ambos casos, confirmar `Successful` y `Ledger` en StellarExpert.
+
+Comprobación de saldo en Freighter: importar la `informanteWallet` (o su `S...` correspondiente si fue generada para la prueba) y verificar el incremento del balance nativo. Alternativamente, consultar Horizon directamente:
+
+```bash
+curl -s "https://horizon-testnet.stellar.org/accounts/GDQJUTQYK2MQX2VGDR2FYWLIYAQIEGXTQVTFEMGH2BEWFG4BRUY4CKI7" | jq '.balances[] | select(.asset_type=="native")'
+```
+
+Para trazabilidad completa sin depender de Horizon, consultar el endpoint de prueba pública:
+
+```bash
+curl -s "$BASE_URL/api/cases/$CASE_ID/proof" | jq
+# { evidenciaHash, evidenciaTimestamp, explorerLinks: { evidencia, pago } }
+```
+
+Este flujo es idéntico al cubierto por `pnpm --filter api test` (8 pasos), pero ejecutado manualmente con wallets reales y transacciones verificables en Testnet. Si `STELLAR_SOURCE_SECRET` no está configurada, el mismo flujo se ejecuta en modo simulado y sigue retornando `201`/`200` sin requerir Friendbot.
+
+## 13. Construcción y despliegue
 
 ```bash
 pnpm --filter api build   # tsc → dist/
@@ -294,7 +504,7 @@ docker compose -f infra/docker/docker-compose.prod.yml up
 
 `Dockerfile.dev` instala dependencias y ejecuta `prisma:generate && dev` con volumenes para hot-reload. `nginx` en `infra/docker/nginx` actúa como reverse proxy en producción.
 
-## 13. Consideraciones operativas y de seguridad
+## 14. Consideraciones operativas y de seguridad
 
 * **Secretos**: `JWT_SECRET`, `STELLAR_SOURCE_SECRET` y `DATABASE_URL` nunca se commitean; viven en `.env` o gestor de secretos. `identidadCifrada` del informante se almacena como blob AES; la clave de cifrado permanece fuera de la BD.
 * **Refresh tokens**: solo se persiste `SHA-256`, nunca el valor en claro; rotación atómica mitiga replay.
@@ -304,7 +514,7 @@ docker compose -f infra/docker/docker-compose.prod.yml up
 * **Validación**: `zod` en borde, `Prisma` con constraints únicos y enums en BD. Normalización de enums garantiza que el contrato externo permanezca estable aunque el esquema evolucione.
 * **Observabilidad**: `LOG_LEVEL` y `PRISMA_LOG_QUERIES`; logs `[STELLAR]`, `[STELLAR ERROR]`, `[STELLAR WARN]` permiten distinguir transacciones reales de simuladas. Healthcheck verifica conectividad a PostgreSQL.
 
-## 14. Limitaciones y trabajo futuro
+## 15. Limitaciones y trabajo futuro
 
 * Reemplazar fallback simulado por fondeo y gestión de secuencia con cuenta multisig real y custodia de claves vía KMS/HSM.
 * Implementar `StellarTransaction` completa: construcción de XDR unsigned, recolección de firmas `signedXDR`, threshold y `fetchTimebounds` dinámico.
