@@ -105,8 +105,35 @@ startClock(document.getElementById('clock2'));
 /* =========================================================
    VISTA 1 → SELECCIÓN DE PERFIL
    ========================================================= */
-document.getElementById('btnPnp').addEventListener('click', () => showView('restricted'));
+document.getElementById('btnPnp').addEventListener('click', () => {
+  showView('autoridades');
+  initAutoridades();
+});
 document.getElementById('btnBackFromRestricted').addEventListener('click', () => showView('profile'));
+const btnBackAutoridades = document.getElementById('btnBackFromAutoridades');
+if (btnBackAutoridades) btnBackAutoridades.addEventListener('click', () => showView('profile'));
+startClock(document.getElementById('clockAuth'));
+
+/* ---- Tabs globales: [Denunciar] | [Verificación Autoridades] ---- */
+function activateGlobalTab(target) {
+  document.querySelectorAll('.global-tab').forEach((t) => {
+    const on = t.dataset.target === target;
+    t.classList.toggle('active', on);
+    t.setAttribute('aria-selected', String(on));
+  });
+  if (target === 'autoridades') {
+    showView('autoridades');
+    initAutoridades();
+  } else {
+    renderFilters();
+    renderGrid();
+    showView('list');
+  }
+}
+document.querySelectorAll('.global-tab').forEach((t) => {
+  t.addEventListener('click', () => activateGlobalTab(t.dataset.target));
+});
+
 document.getElementById('btnInformante').addEventListener('click', () => {
   renderFilters();
   renderGrid();
@@ -231,7 +258,7 @@ function resetReportForm() {
   document.getElementById('countAudio').textContent = '';
   document.getElementById('countVideo').textContent = '';
   document.getElementById('uploadProgress').classList.remove('show');
-  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('progressFill').style.transform = 'scaleX(0)';
   document.getElementById('progressPct').textContent = '0%';
   document.getElementById('btnSubmitReport').disabled = false;
   document.getElementById('btnSubmitReport').textContent = 'Subir información (todo)';
@@ -268,10 +295,10 @@ document.getElementById('btnSubmitReport').addEventListener('click', async () =>
    *
    * Por ahora se simula el progreso para la demo.
    */
-  const pasos = [30, 65, 100];
+  const pasos = [0.3, 0.65, 1];
   for (const p of pasos) {
-    fill.style.width = p + '%';
-    pct.textContent = p + '%';
+    fill.style.transform = 'scaleX(' + p + ')';
+    pct.textContent = Math.round(p * 100) + '%';
     await wait(600);
   }
   await wait(400);
@@ -284,5 +311,309 @@ document.getElementById('btnBackToListFromThanks').addEventListener('click', () 
   showView('list');
 });
 
-/* Vista inicial */
-showView('profile');
+/* =========================================================
+   PORTAL DE AUTORIDADES / ESCUDOPAY ADMIN
+   ========================================================= */
+const API_BASE = "http://localhost:4000";
+// Wallet REAL de Testnet (StrKey válido + fondeada vía friendbot).
+// Debe ser una public key Ed25519 con checksum correcto: si no,
+// Operation.payment falla con "destination is invalid".
+const DEMO_INFORMANTE_WALLET = "GAUP7AU33PW2KGEHAX2LCU7FTRTJVUXZ2U7F7X5QJFYXNSBRJ63HZPPV";
+let authCases = [];
+let selectedAuthCaseId = null;
+
+function apiUrl(path) { return `${API_BASE}${path}`; }
+
+function statusLabelAuth(s) {
+  const m = {
+    recibido: "RECIBIDO",
+    en_verificacion: "EN REVISIÓN",
+    en_revision: "EN REVISIÓN",
+    listo_para_liberar: "LISTO PARA LIBERAR",
+    pagado: "PAGADO",
+    rechazado: "RECHAZADO",
+    en_cola: "EN COLA",
+  };
+  const k = String(s || "").toLowerCase();
+  return m[k] || String(s || "").toUpperCase();
+}
+// Tono del badge: fondo 8%, borde 20%, texto saturado (ver Style.css).
+function statusToneAuth(s) {
+  const k = String(s).toLowerCase();
+  if (k === "pagado") return "tone-pagado";
+  if (k === "listo_para_liberar") return "tone-listo";
+  if (k === "en_verificacion" || k === "en_revision" || k === "en_verificacíon") return "tone-revision";
+  if (k === "recibido") return "tone-recibido";
+  if (k === "rechazado") return "tone-rechazado";
+  return "tone-default";
+}
+function statusColorAuth(s) {
+  const k = String(s || "").toLowerCase();
+  if (k === "pagado") return "#4ade80";
+  if (k === "listo_para_liberar") return "#facc15";
+  if (k === "en_verificacion" || k === "en_revision") return "#38bdf8";
+  if (k === "recibido") return "#2dd9c4";
+  if (k === "rechazado") return "#fb7185";
+  return "#8fb8b3";
+}
+function showAuthToast(msg, type = "info") {
+  const el = document.getElementById("authToast");
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = "block";
+  el.style.background = type === "ok" ? "#4ade80" : type === "err" ? "rgba(251,113,133,0.12)" : "var(--panel)";
+  el.style.color = type === "ok" ? "#04211d" : type === "err" ? "#fecdd3" : "var(--text)";
+  el.style.border = `1px solid ${type === "ok" ? "var(--green-dim)" : type === "err" ? "var(--red-dim)" : "var(--line)"}`;
+  setTimeout(() => { el.style.display = "none"; }, 4000);
+}
+
+async function fetchAuthCases() {
+  const listEl = document.getElementById("authCasesList");
+  const emptyEl = document.getElementById("authCasesEmpty");
+  const countEl = document.getElementById("authCasesCount");
+  try {
+    const r = await fetch(apiUrl("/api/cases"), { headers: { "Content-Type": "application/json" } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    authCases = data.casos || data.cases || [];
+    if (countEl) countEl.textContent = `${authCases.length} caso${authCases.length !== 1 ? "s" : ""}`;
+    if (!authCases.length) {
+      if (listEl) listEl.innerHTML = "";
+      if (emptyEl) emptyEl.style.display = "block";
+      return;
+    }
+    if (emptyEl) emptyEl.style.display = "none";
+    renderAuthCases();
+  } catch (e) {
+    showAuthToast("Error cargando casos: " + e.message, "err");
+    if (listEl) listEl.innerHTML = `<div class="empty-state" style="color:var(--red);">${e.message} — ¿Backend en http://localhost:4000?</div>`;
+  }
+}
+function renderAuthCases() {
+  const listEl = document.getElementById("authCasesList");
+  if (!listEl) return;
+  listEl.innerHTML = "";
+  authCases.forEach((c) => {
+    const btn = document.createElement("button");
+    btn.className = `auth-case-row ${selectedAuthCaseId === c.caseId ? "selected" : ""}`;
+    btn.innerHTML = `
+      <div class="auth-case-top">
+        <span class="auth-case-id" title="${c.caseId}">${c.caseId.slice(0,8)}…${c.caseId.slice(-4)}</span>
+        <span style="display:flex;gap:6px;align-items:center;">
+          ${c.pagoSimulado ? `<span class="wanted-tag is-sim" title="El pago NO fue on-chain">Simulado</span>` : ""}
+          <span class="wanted-tag ${statusToneAuth(c.status)}">${statusLabelAuth(c.status)}</span>
+        </span>
+      </div>
+      <div class="auth-case-meta">
+        <span>Delito: <b>${c.delitoTipo}</b></span>
+        <span>Monto: <b>${c.montoRecompensa} XLM</b></span>
+      </div>
+      <div class="auth-case-foot">${c.caseId}</div>
+      <div class="auth-case-foot">${new Date(c.createdAt).toLocaleString("es-PE")}</div>
+    `;
+    btn.addEventListener("click", () => {
+      selectedAuthCaseId = c.caseId;
+      const input = document.getElementById("inputCaseId");
+      if (input) input.value = c.caseId;
+      loadAuthDetail(c.caseId);
+      renderAuthCases();
+    });
+    listEl.appendChild(btn);
+  });
+}
+
+async function loadAuthDetail(caseId) {
+  const noSel = document.getElementById("authNoSelection");
+  const detailWrap = document.getElementById("authDetail");
+  const paySuccess = document.getElementById("authPaySuccess");
+  if (paySuccess) paySuccess.style.display = "none";
+  try {
+    const [r1, r2] = await Promise.all([
+      fetch(apiUrl(`/api/cases/${caseId}`), { headers: { "Content-Type": "application/json" } }),
+      fetch(apiUrl(`/api/cases/${caseId}/proof`), { headers: { "Content-Type": "application/json" } }),
+    ]);
+    if (!r1.ok) {
+      const j = await r1.json().catch(() => ({}));
+      throw new Error(j.error || `Caso no encontrado (${r1.status})`);
+    }
+    const d = await r1.json();
+    let proof = null;
+    if (r2.ok) proof = await r2.json();
+
+    selectedAuthCaseId = caseId;
+    renderAuthCases();
+    if (noSel) noSel.style.display = "none";
+    if (detailWrap) detailWrap.style.display = "block";
+
+    document.getElementById("authDetailId").textContent = d.caseId;
+    const st = document.getElementById("authDetailStatus");
+    st.textContent = statusLabelAuth(d.status);
+    st.className = `wanted-tag ${statusToneAuth(d.status)}`;
+    document.getElementById("authDelito").textContent = d.delitoTipo;
+    document.getElementById("authEstado").textContent = statusLabelAuth(d.status);
+    document.getElementById("authRecompensa").textContent = `${d.montoRecompensa} XLM`;
+    document.getElementById("authFirmas").textContent = `${d.firmas.obtenidas} / ${d.firmas.requeridas}`;
+    document.getElementById("authCreado").textContent = new Date(d.createdAt).toLocaleString("es-PE");
+
+    const link = document.getElementById("authExplorerLink");
+    const none = document.getElementById("authExplorerNone");
+    const txEl = document.getElementById("authTxHash");
+    const explorerUrl = proof?.explorerLinks?.evidencia || (d.evidenciaAncladaTx ? `https://stellar.expert/explorer/testnet/tx/${d.evidenciaAncladaTx}` : null);
+    if (explorerUrl) {
+      link.href = explorerUrl;
+      link.style.display = "inline-block";
+      if (none) none.style.display = "none";
+    } else {
+      link.style.display = "none";
+      if (none) none.style.display = "block";
+    }
+    txEl.textContent = d.evidenciaAncladaTx ? `tx: ${d.evidenciaAncladaTx}` : "";
+
+    // habilitar/deshabilitar Liberar
+    const canRelease = String(d.status).toLowerCase() === "listo_para_liberar";
+    const btnRelease = document.getElementById("btnRelease");
+    btnRelease.disabled = !canRelease;
+    document.getElementById("authReleaseHint").style.display = canRelease ? "none" : "block";
+
+    // si ya está pagado, mostrar éxito
+    if (String(d.status).toLowerCase() === "pagado" && d.releaseTx) {
+      const payTx = document.getElementById("authPayTx");
+      const payLink = document.getElementById("authPayExplorer");
+      if (paySuccess) paySuccess.style.display = "block";
+      payTx.textContent = `tx: ${d.releaseTx}`;
+      payLink.href = `https://stellar.expert/explorer/testnet/tx/${d.releaseTx}`;
+      if (paySuccess) {
+        const icon = paySuccess.querySelector("div:first-child");
+        const titulo = paySuccess.querySelector("div:nth-child(2)");
+        if (d.pagoSimulado) {
+          // El hash NO existe on-chain — nunca debe leerse como un pago real.
+          paySuccess.classList.add("is-simulado");
+          if (icon) icon.innerHTML = `' + ICON_ALERT + '`;
+          if (titulo) {
+            titulo.textContent = "Pago simulado — este hash no existe on-chain. La transacción real falló y no se transfirió XLM al informante.";
+          }
+        } else {
+          paySuccess.classList.remove("is-simulado");
+          if (icon) icon.innerHTML = `' + ICON_CHECK + '`;
+          if (titulo) titulo.textContent = "Caso ya pagado";
+        }
+      }
+    }
+  } catch (e) {
+    showAuthToast(e.message, "err");
+  }
+}
+
+async function verifyAuth(rol) {
+  if (!selectedAuthCaseId) return showAuthToast("Selecciona un caso primero", "err");
+  const payload = rol === "policia"
+    ? { rol: "policia", verificadorId: "PNP-DIRNIC-04821", verificadorWallet: DEMO_INFORMANTE_WALLET, resultado: "APROBADO" }
+    : { rol: "fiscalia", verificadorId: "MP-FISC-99120", verificadorWallet: DEMO_INFORMANTE_WALLET, resultado: "APROBADO" };
+  try {
+    const r = await fetch(apiUrl(`/api/cases/${selectedAuthCaseId}/verify`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `Error ${r.status}`);
+    showAuthToast(`${rol === "policia" ? "PNP" : "Fiscalía"} aprobó. Estado: ${statusLabelAuth(j.status)}`, "ok");
+    await fetchAuthCases();
+    await loadAuthDetail(selectedAuthCaseId);
+  } catch (e) {
+    if (String(e.message).includes("ya firmó")) showAuthToast("Este rol ya firmó este caso", "err");
+    else showAuthToast(e.message, "err");
+  }
+}
+
+async function releaseAuth() {
+  if (!selectedAuthCaseId) return showAuthToast("Selecciona un caso", "err");
+  try {
+    const r = await fetch(apiUrl(`/api/cases/${selectedAuthCaseId}/release`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ monto: 50 }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `Error ${r.status}`);
+    // mostrar destacado
+    const paySuccess = document.getElementById("authPaySuccess");
+    const payTx = document.getElementById("authPayTx");
+    const payLink = document.getElementById("authPayExplorer");
+    if (paySuccess) paySuccess.style.display = "block";
+    const titulo = paySuccess.querySelector("div:nth-child(2)");
+    const icon = paySuccess.querySelector(".pay-icon");
+    if (j.simulado) {
+      paySuccess.classList.add("is-simulado");
+      if (icon) icon.innerHTML = `' + ICON_ALERT + '`;
+      titulo.textContent = "Pago simulado — la tx on-chain falló";
+      showAuthToast("Pago simulado (la tx on-chain falló)", "err");
+    } else {
+      paySuccess.classList.remove("is-simulado");
+      if (icon) icon.innerHTML = `' + ICON_CHECK + '`;
+      titulo.textContent = "Pago de 50 XLM transferido con éxito";
+      showAuthToast("Pago de 50 XLM transferido con éxito", "ok");
+    }
+    payTx.textContent = `tx: ${j.tx}`;
+    payLink.href = j.explorerUrl;
+    payLink.innerHTML = `' + ICON_OUT + ' Ver en Stellar Expert`;
+    await fetchAuthCases();
+    await loadAuthDetail(selectedAuthCaseId);
+  } catch (e) {
+    showAuthToast(e.message, "err");
+  }
+}
+
+async function createDemoCase() {
+  try {
+    const r = await fetch(apiUrl("/api/reports"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        informanteWallet: DEMO_INFORMANTE_WALLET,
+        delitoTipo: "EXTORSION",
+        descripcion: "Reporte demo para pitch — EscudoPay Admin",
+        evidenciaHash: Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2),
+        montoRecompensaSugerido: 50,
+      }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "No se pudo crear caso demo");
+    showAuthToast(`Caso demo creado: ${j.caseId}`, "ok");
+    const input = document.getElementById("inputCaseId");
+    if (input) input.value = j.caseId;
+    await fetchAuthCases();
+    selectedAuthCaseId = j.caseId;
+    await loadAuthDetail(j.caseId);
+  } catch (e) {
+    showAuthToast(e.message, "err");
+  }
+}
+
+function initAutoridades() {
+  fetchAuthCases();
+  const input = document.getElementById("inputCaseId");
+  const btnLoad = document.getElementById("btnLoadCase");
+  const btnRefresh = document.getElementById("btnRefreshCases");
+  const btnDemo = document.getElementById("btnCreateDemo");
+  const btnPnp = document.getElementById("btnVerifyPnp");
+  const btnFis = document.getElementById("btnVerifyFiscalia");
+  const btnRel = document.getElementById("btnRelease");
+  if (btnLoad && !btnLoad.dataset.wired) {
+    btnLoad.dataset.wired = "1";
+    btnLoad.addEventListener("click", () => {
+      const v = input.value.trim();
+      if (!v) return showAuthToast("Pega un caseId válido", "err");
+      loadAuthDetail(v);
+    });
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") btnLoad.click(); });
+    btnRefresh.addEventListener("click", fetchAuthCases);
+    btnDemo.addEventListener("click", createDemoCase);
+    btnPnp.addEventListener("click", () => verifyAuth("policia"));
+    btnFis.addEventListener("click", () => verifyAuth("fiscalia"));
+    btnRel.addEventListener("click", releaseAuth);
+  }
+}
+
+/* Vista inicial — arranca directo en el panel de autoridades (pitch) */
+activateGlobalTab('autoridades');
