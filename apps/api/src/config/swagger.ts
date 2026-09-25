@@ -66,7 +66,7 @@ export const swaggerSpec = swaggerJsdoc({
                     informanteWallet: { type: "string", example: "GDQJUTQYK2MQX2VGDR2FYWLIYAQIEGXTQVTFEMGH2BEWFG4BRUY4CKI7" },
                     delitoTipo: { type: "string", example: "extorsion" },
                     descripcion: { type: "string", example: "Sospechoso identificado en zona comercial" },
-                    montoRecompensaSugerido: { type: "number", example: 3000 },
+                    montoRecompensaSugerido: { type: "number", example: 50, description: "Recompensa en XLM. Default: 50" },
                     evidenciaHash: { type: "string", example: "abc123hash" },
                   },
                 },

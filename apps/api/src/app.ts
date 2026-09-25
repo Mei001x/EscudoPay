@@ -25,6 +25,8 @@ app.use(
     origin: (origin, callback) => {
       // Permitir requests sin origin (ej. curl, Postman, server-to-server)
       if (!origin) return callback(null, true);
+      // En desarrollo/test: permitir cualquier origen (pitch / Fronted estático en 8080 / Vite 5173/5174)
+      if (config.env !== "production") return callback(null, true);
       if (allowedOrigins.includes(origin)) return callback(null, true);
       callback(new Error(`CORS: origin no permitido — ${origin}`));
     },

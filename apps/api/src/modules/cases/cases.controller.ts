@@ -9,7 +9,8 @@ const createReportSchema = z.object({
   delitoTipo: z
     .string()
     .min(1)
-    .transform((v) => v.toUpperCase()),
+    .transform((v) => v.toUpperCase())
+    .pipe(z.enum(["EXTORSION", "SICARIATO"])),
   descripcion: z.string().min(1),
   evidenciaHash: z.string().optional(),
   montoRecompensaSugerido: z.number().nonnegative().optional(),

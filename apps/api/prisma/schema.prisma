@@ -83,9 +83,10 @@ model Caso {
   claimableBalanceId       String?     // id de la Claimable Balance en Stellar (si se usa ese camino)
   firmasRequeridas         Int         @default(2)
 
-  releaseTx                String?     // tx hash del claim/pago final
-  releaseExplorerUrl       String?
-  releasedAt                DateTime?
+    releaseTx                String?     // tx hash del claim/pago final
+    releaseExplorerUrl       String?
+    releasedAt               DateTime?
+    pagoSimulado             Boolean     @default(false) // true = el hash NO existe on-chain (fallback). Nunca debe presentarse como pago real.
 
   motivoRechazo             String?
 

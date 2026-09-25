@@ -65,7 +65,7 @@ export async function createReport(data: CreateReportRequest) {
     delitoTipo: delitoTipoNorm,
     descripcion: data.descripcion,
     evidenciaHash: data.evidenciaHash ?? randomBytes(32).toString("hex"),
-    montoRecompensaSugerido: data.montoRecompensaSugerido ?? 5000,
+    montoRecompensaSugerido: data.montoRecompensaSugerido ?? 50,
   });
 
   // 3. Anclar evidencia en Stellar (real si hay credencial, fallback simulado)
@@ -132,6 +132,7 @@ export async function getAllCases(status?: string) {
       delitoTipo: (c.delitoTipo as unknown as string).toLowerCase(),
       status: (c.status as string).toLowerCase(),
       montoRecompensa: c.montoRecompensaSugerido,
+      pagoSimulado: c.pagoSimulado ?? false,
       createdAt: c.createdAt.toISOString(),
     })),
   };
@@ -152,6 +153,7 @@ export async function getCaseById(caseId: string) {
     delitoTipo: (c.delitoTipo as unknown as string).toLowerCase(),
     evidenciaAncladaTx: c.evidenciaAncladaTx ?? null,
     releaseTx: c.releaseTx ?? null,
+    pagoSimulado: c.pagoSimulado ?? false,
     montoRecompensa: c.montoRecompensaSugerido,
     firmas: {
       requeridas: c.firmasRequeridas,
@@ -257,6 +259,9 @@ export async function releaseCase(caseId: string) {
 
   let releaseTx: string;
   let releaseExplorerUrl: string;
+  // `true` cuando el pago NO fue on-chain y se generó un hash ficticio.
+  // Se propaga al frontend para que nunca se presente una simulación como real.
+  let simulado = false;
 
   const hasStellarSecretRelease = (process.env.STELLAR_SOURCE_SECRET ?? "")
     .replace(/['"]/g, "")
@@ -268,15 +273,17 @@ export async function releaseCase(caseId: string) {
       releaseTx = txHash;
       releaseExplorerUrl = `https://stellar.expert/explorer/testnet/tx/${txHash}`;
     } catch (error) {
-      console.warn(
-        "[STELLAR WARN] Ejecutando fallback simulado debido a:",
-        error,
+      simulado = true;
+      console.error(
+        "[STELLAR WARN] Transacción real FALLÓ — se genera hash SIMULADO (no es un pago on-chain):",
+        error instanceof Error ? error.message : error,
       );
       const release = simularReleaseTx();
       releaseTx = release.tx;
       releaseExplorerUrl = release.explorerUrl;
     }
   } else {
+    simulado = true;
     console.warn(
       "[STELLAR WARN] Ejecutando fallback simulado debido a:",
       !hasStellarSecretRelease
@@ -292,6 +299,7 @@ export async function releaseCase(caseId: string) {
     releaseTx,
     releaseExplorerUrl,
     releasedAt: new Date(),
+    pagoSimulado: simulado,
   });
 
   return {
@@ -303,6 +311,7 @@ export async function releaseCase(caseId: string) {
       explorerUrl: releaseExplorerUrl,
       montoLiberado: monto,
       receptor: informanteWallet,
+      simulado,
     },
   };
 }

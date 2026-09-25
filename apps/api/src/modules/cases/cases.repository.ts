@@ -72,6 +72,7 @@ export async function actualizarDatosLiberacion(
     releaseTx: string;
     releaseExplorerUrl: string;
     releasedAt: Date;
+    pagoSimulado?: boolean;
   },
 ): Promise<Caso> {
   return prisma.caso.update({
@@ -80,6 +81,7 @@ export async function actualizarDatosLiberacion(
       releaseTx: data.releaseTx,
       releaseExplorerUrl: data.releaseExplorerUrl,
       releasedAt: data.releasedAt,
+      pagoSimulado: data.pagoSimulado ?? false,
       status: "PAGADO",
     },
   });
