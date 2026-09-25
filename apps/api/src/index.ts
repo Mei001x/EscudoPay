@@ -1,3 +1,9 @@
+import path from "node:path";
+import dotenv from "dotenv";
+
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
+dotenv.config(); // fallback a la raíz
+
 import { config } from './config/configuration';
 import { httpServer } from './app';
 import { prisma } from './config/prisma';

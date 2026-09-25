@@ -1,6 +1,7 @@
 /* =========================================================
-   DATA SIMULADA — reemplazar por una llamada real a tu API
-   cuando tengan el backend conectado (GET /api/buscados)
+   DATA SIMULADA — reemplazar por una llamada real a la API
+   cuando tenga el backend conectado 
+   
    ========================================================= */
 const BUSCADOS = [
   {
@@ -90,7 +91,7 @@ function showView(name) {
 }
 
 /* =========================================================
-   RELOJ (detalle cosmético del HUD)
+   RELOJ 
    ========================================================= */
 function startClock(el) {
   if (!el) return;

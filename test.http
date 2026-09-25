@@ -1,0 +1,149 @@
+@baseUrl = http://localhost:4000
+
+### 1. Crear un reporte nuevo (Paso 1)
+# @name createReport
+POST {{baseUrl}}/api/reports
+Content-Type: application/json
+
+{
+  "informanteWallet": "GDQJUTQYK2MQX2VGDR2FYWLIYAQIEGXTQVTFEMGH2BEWFG4BRUY4CKI7",
+  "delitoTipo": "extorsion",
+  "descripcion": "Sospechoso identificado en zona comercial",
+  "montoRecompensaSugerido": 3000
+}
+
+### 2. Listar todos los casos (Paso 2) - debe devolver total >=1 y el caso creado
+GET {{baseUrl}}/api/cases
+
+### 3. Listar filtrando por status=recibido (Paso 2) - debe incluir el caso creado
+GET {{baseUrl}}/api/cases?status=recibido
+
+### 4. Consultar detalle de un caso específico (Paso 2) - AUTOMÁTICO, usa el caseId del paso 1
+GET {{baseUrl}}/api/cases/{{createReport.response.body.$.caseId}}
+
+### 5. (Manual fallback) Si el paso 4 te da 404, pega aquí el caseId manualmente:
+# Copia el caseId de la respuesta del paso 1
+# GET {{baseUrl}}/api/cases/PEGA_AQUI_EL_CASE_ID
+
+### 6. Firma 1/2 - Policía aprueba (debe pasar a en_verificacion)
+# @name signPolicia
+POST {{baseUrl}}/api/cases/{{createReport.response.body.$.caseId}}/signatures
+Content-Type: application/json
+
+{
+  "signerWallet": "GC_POLICIA_WALLET_DEMO_123",
+  "rol": "policia",
+  "decision": "aprobar"
+}
+
+### 7. Verificar que quedó en_verificacion
+GET {{baseUrl}}/api/cases/{{createReport.response.body.$.caseId}}
+
+### 8. Firma 2/2 - Fiscal aprueba (debe pasar a aprobado)
+POST {{baseUrl}}/api/cases/{{createReport.response.body.$.caseId}}/signatures
+Content-Type: application/json
+
+{
+  "signerWallet": "GC_FISCAL_WALLET_DEMO_456",
+  "rol": "fiscal",
+  "decision": "aprobar"
+}
+
+### 9. Verificar que quedó aprobado
+GET {{baseUrl}}/api/cases/{{createReport.response.body.$.caseId}}
+
+### 10. Caso de error - mismo rol no puede firmar dos veces (debe dar 400 "Este rol ya firmó el caso")
+POST {{baseUrl}}/api/cases/{{createReport.response.body.$.caseId}}/signatures
+Content-Type: application/json
+
+{
+  "signerWallet": "GC_POLICIA_WALLET_DEMO_123",
+  "rol": "policia",
+  "decision": "aprobar"
+}
+
+### 11. Caso de error - ID inexistente (debe dar 404 "Caso no encontrado")
+GET {{baseUrl}}/api/cases/00000000-0000-0000-0000-000000000000
+
+### 12. Caso de error - firma a ID inexistente (debe dar 404)
+POST {{baseUrl}}/api/cases/00000000-0000-0000-0000-000000000000/signatures
+Content-Type: application/json
+
+{
+  "signerWallet": "GC_TEST",
+  "rol": "policia",
+  "decision": "aprobar"
+}
+
+### 13. Crear caso para probar rechazo
+# @name createReport2
+POST {{baseUrl}}/api/reports
+Content-Type: application/json
+
+{
+  "informanteWallet": "GDQJUTQYK2MQX2VGDR2FYWLIYAQIEGXTQVTFEMGH2BEWFG4BRUY4CKI7",
+  "delitoTipo": "fraude",
+  "descripcion": "Caso que será rechazado",
+  "montoRecompensaSugerido": 1000
+}
+
+### 14. Rechazar caso (debe pasar a rechazado)
+POST {{baseUrl}}/api/cases/{{createReport2.response.body.$.caseId}}/signatures
+Content-Type: application/json
+
+{
+  "signerWallet": "GC_FISCAL_WALLET_DEMO_456",
+  "rol": "fiscal",
+  "decision": "rechazar"
+}
+
+### 15. Verificar rechazado
+GET {{baseUrl}}/api/cases/{{createReport2.response.body.$.caseId}}
+
+### 16. Health check
+GET {{baseUrl}}/api/health
+
+### ¡Salió impecable! Reporte 562f3fd0-8c1e-42af-886d-b6c87014107d - quórum con signerWallet: null, firmado: false
+# El reporte ya existe con ID 562f3fd0-8c1e-42af-886d-b6c87014107d
+# Ejecuta sin reiniciar el servidor para no borrar la memoria
+
+### 17. Firma del Policía - debe devolver status: "en_verificacion" y obtenidas: 1
+POST {{baseUrl}}/api/cases/562f3fd0-8c1e-42af-886d-b6c87014107d/signatures
+Content-Type: application/json
+
+{
+  "signerWallet": "G_POLICIA_WALLET_TESTNET_KEY_12345",
+  "rol": "policia",
+  "decision": "aprobar"
+}
+
+### 18. Firma del Fiscal - debe devolver status: "aprobado" y obtenidas: 2
+POST {{baseUrl}}/api/cases/562f3fd0-8c1e-42af-886d-b6c87014107d/signatures
+Content-Type: application/json
+
+{
+  "signerWallet": "G_FISCAL_WALLET_TESTNET_KEY_67890",
+  "rol": "fiscal",
+  "decision": "aprobar"
+}
+
+### 19. Verificar quórum completo 2/2
+GET {{baseUrl}}/api/cases/562f3fd0-8c1e-42af-886d-b6c87014107d
+
+### 20. Payout - debe fallar si no está aprobado (400 not_approved) - prueba con recibida/en_verificacion
+# POST {{baseUrl}}/api/cases/562f3fd0-8c1e-42af-886d-b6c87014107d/payout
+
+### 21. Payout - desembolso cuando está aprobado (debe dar 200 con payoutTxHash)
+POST {{baseUrl}}/api/cases/562f3fd0-8c1e-42af-886d-b6c87014107d/payout
+Content-Type: application/json
+
+### 22. Verificar pagado
+GET {{baseUrl}}/api/cases/562f3fd0-8c1e-42af-886d-b6c87014107d
+
+### 23. Payout duplicado - debe dar 400 already_paid
+POST {{baseUrl}}/api/cases/562f3fd0-8c1e-42af-886d-b6c87014107d/payout
+Content-Type: application/json
+
+### 24. Payout con ID inexistente - debe dar 404
+POST {{baseUrl}}/api/cases/00000000-0000-0000-0000-000000000000/payout
+Content-Type: application/json
