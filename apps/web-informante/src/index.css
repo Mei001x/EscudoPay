@@ -8,37 +8,47 @@
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
-  /* Superficies neutras; la profundidad la hace el borde de 1px */
+  /* Paleta slate sobre navy, para la tarjeta y los controles.
+     Los roles de texto se remapean aquí para no reescribir cada regla. */
+  --slate-900: #0f172a; /* fondo de input */
+  --slate-800: #1e293b; /* hover de botón, superficie elevada */
+  --slate-700: #334155; /* borde visible */
+  --slate-600: #475569;
+  --slate-500: #64748b; /* 3.7:1 sobre la tarjeta: NO se usa como placeholder */
+  --slate-400: #94a3b8; /* secundario y placeholder — 6.9:1 */
+  --slate-300: #cbd5e1; /* texto de botón ghost */
+  --slate-200: #e5e7eb; /* etiquetas */
+  --slate-100: #f1f5f9; /* texto dentro del input */
+  --card: #111827; /* la tarjeta del formulario */
+  --emerald: #10b981;
+
   --void: #0a0a0a;
   --canvas: #0a0a0a;
-  --panel: #121212;
-  --panel-2: #171717;
-  --panel-3: #1d1d1d;
+  --panel: var(--card);
+  --panel-2: var(--slate-900);
+  --panel-3: var(--slate-800);
 
-  --line: rgba(255, 255, 255, 0.08);
-  --line-bright: rgba(255, 255, 255, 0.16);
-  --line-accent: rgba(31, 213, 183, 0.34);
+  /* Borde de la tarjeta: slate-700 sólido, no al 80%. Compuesto sobre
+     #111827 el alpha 0.8 cae a #2D394C, que a 1px no delimita nada. */
+  --line: #334155;
+  --line-bright: #475569;
+  --line-accent: rgba(16, 185, 129, 0.55);
 
-  /* Texto: los tres pasos pasan AA (≥4.5:1) incluso sobre --panel-2,
-     que es el fondo real de los campos y no el lienzo. El token del
-     verificador (#767676) daba 4.12:1 sobre panel: cumplía contra
-     --void y fallaba en cuanto el texto se apoyaba en una tarjeta. */
-  --text: #ededed;
-  --text-mid: #a3a3a3;
-  --text-dim: #828282;
+  --text: #ffffff;
+  --text-mid: #94a3b8;
+  --text-dim: #94a3b8;
 
-  /* Acento único + un rojo sobrio sólo para el aviso de exposición */
-  --teal: #1fd5b7;
-  --teal-dim: #14806d;
-  --teal-wash: rgba(31, 213, 183, 0.07);
+  --teal: var(--emerald);
+  --teal-dim: #059669;
+  --teal-wash: rgba(16, 185, 129, 0.09);
   --on-accent: #04211d;
 
   --green: #10b981;
-  --green-dim: #0b7a58;
-  --red: #f04438;
-  --red-dim: #a32720;
+  --green-dim: #047857;
+  --red: #ef4444;
+  --red-dim: #b91c1c;
 
-  --radius: 12px;
+  --radius: 16px;
   --radius-control: 8px;
   --radius-code: 5px;
 
@@ -89,8 +99,8 @@ code {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 16px 24px;
-  max-width: 1280px;
+  padding: 16px;
+  max-width: 768px;
   margin: 0 auto;
   flex-wrap: wrap;
 }
@@ -129,15 +139,20 @@ code {
 /* ── Layout ─────────────────────────────────────────────────────
    Una sola columna. El reporte es una tarea lineal — describir,
    confirmar destino, enviar — y una columna estrecha hace que el
-   ojo avance hacia abajo sin saltos. La versión anterior ponía el
-   formulario y un panel "Resultado" vacío lado a lado: dos tarjetas
-   del mismo tamaño para dos cosas que no son equivalentes, porque
-   el resultado no es una tarea hermana, es la consecuencia de ésta.
+   ojo avance hacia abajo sin saltos.
+
+   La medida (768px) la comparten el encabezado, el formulario y el
+   pie. Antes el encabezado iba a 1280px y la tarjeta a 720: la regla
+   de arriba se salía 304px por cada lado de la tarjeta y eso es lo
+   que se leía como "espacio vacío gigante a la derecha", aunque la
+   tarjeta estuviera centrada. Chatarra y contenido deben medir lo
+   mismo o el uno flota dentro del otro.
    ─────────────────────────────────────────────────────────────── */
 .citizen-wrap {
-  max-width: 720px;
+  max-width: 768px;
   margin: 0 auto;
-  padding: 32px 24px 56px;
+  padding: 32px 16px 56px;
+  width: 100%;
 }
 
 /* Fila compacta: la recompensa sugerida no merece el ancho completo
@@ -190,13 +205,18 @@ code {
 .wallet-status.mal svg { color: var(--red); }
 .copy-btn {
   flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px;
-  background: var(--panel-3); color: var(--text-mid); border: 1px solid var(--line-bright);
+  background: transparent; color: var(--slate-300); border: 1px solid var(--slate-700);
   border-radius: var(--radius-control); font-family: inherit; font-size: 12px;
   padding: 0 12px; cursor: pointer;
-  transition: color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
+  transition: color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out),
+    background-color var(--dur) var(--ease-out);
 }
-.copy-btn:hover { color: var(--text); border-color: var(--line-accent); }
+.copy-btn:hover:not(:disabled) {
+  color: var(--slate-100); border-color: var(--slate-600);
+  background: rgba(30, 41, 59, 0.8);
+}
 .copy-btn svg { width: 13px; height: 13px; }
+.copy-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* Barra de confirmación: la acción y su letra legal, juntas. La
    garantía de privacidad pasa de estar a 520px de distancia del
@@ -241,13 +261,18 @@ code {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 26px;
+  padding: 24px;
+  width: 100%;
+  margin: 0 auto;
   box-shadow: var(--shadow-panel);
+}
+@media (min-width: 768px) {
+  .panel { padding: 32px; }
 }
 .panel-head { margin-bottom: 22px; }
 .panel-title {
-  margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.015em;
-  line-height: 1.3; color: var(--text);
+  margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.015em;
+  line-height: 1.3; color: #ffffff;
   display: flex; align-items: center; gap: 8px;
 }
 .panel-title svg { width: 15px; height: 15px; color: var(--text-dim); flex-shrink: 0; }
@@ -257,27 +282,29 @@ code {
 .field { display: block; margin-bottom: 18px; }
 .field.grow { flex: 1; }
 .field-label {
-  display: block; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em;
-  text-transform: uppercase; color: var(--text-dim); margin-bottom: 7px;
+  display: block; font-size: 10.5px; font-weight: 500; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--slate-200); margin-bottom: 7px;
 }
-.field-hint { margin: 7px 0 0; font-size: 12px; color: var(--text-dim); line-height: 1.5; }.input {
+.field-hint { margin: 7px 0 0; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+.input {
   flex: 1; min-width: 0;
-  background: var(--panel-2); border: 1px solid var(--line);
-  border-radius: var(--radius-control); color: var(--text);
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid var(--slate-700);
+  border-radius: var(--radius-control); color: var(--slate-100);
   font-family: inherit; font-size: 14px; padding: 10px 12px; outline: none;
   transition: border-color var(--dur) var(--ease-out), background-color var(--dur) var(--ease-out),
     box-shadow var(--dur) var(--ease-out);
 }
-.input:hover { border-color: var(--line-bright); }
+.input:hover { border-color: var(--slate-600); }
 .input:focus {
-  border-color: var(--line-accent); background: var(--panel);
-  box-shadow: 0 0 0 3px rgba(31, 213, 183, 0.1);
+  border-color: var(--emerald); background: var(--slate-900);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14);
 }
-.input::placeholder { color: var(--text-dim); opacity: 1; }
+.input::placeholder { color: var(--slate-400); opacity: 1; }
 .textarea { min-height: 150px; resize: vertical; line-height: 1.6; }
 select.input {
   cursor: pointer; appearance: none;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23767f88' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 12px center; padding-right: 34px;
 }
 select.input option { background: var(--panel-2); color: var(--text); }
@@ -302,14 +329,18 @@ select.input option { background: var(--panel-2); color: var(--text); }
 
 .btn-ghost {
   display: inline-flex; align-items: center; gap: 6px;
-  background: transparent; color: var(--text-mid); border: 1px solid var(--line);
+  background: transparent; color: var(--slate-300);
+  border: 1px solid var(--slate-700);
   border-radius: var(--radius-control); font-family: inherit; font-weight: 500;
   font-size: 12.5px; padding: 8px 12px; cursor: pointer;
   transition: color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out),
     background-color var(--dur) var(--ease-out);
 }
 @media (hover: hover) and (pointer: fine) {
-  .btn-ghost:hover { color: var(--text); border-color: var(--line-bright); background: var(--panel-2); }
+  .btn-ghost:hover {
+    color: var(--slate-100); border-color: var(--slate-600);
+    background: rgba(30, 41, 59, 0.8);
+  }
 }
 .btn-ghost svg { width: 13px; height: 13px; }
 .btn-ghost.link-btn { display: inline-flex; text-decoration: none; width: 100%; justify-content: center; }
@@ -355,12 +386,15 @@ select.input option { background: var(--panel-2); color: var(--text); }
 .case-receipt-value { font-family: var(--mono); font-size: 13px; color: var(--teal); margin-top: 4px; word-break: break-all; }
 .btn-explorer {
   display: inline-flex; align-items: center; gap: 7px; margin-top: 16px;
-  background: var(--panel-3); color: var(--text); border: 1px solid var(--line-bright);
+  background: transparent; color: var(--slate-300); border: 1px solid var(--slate-700);
   border-radius: var(--radius-control); font-family: inherit; font-weight: 500;
   font-size: 12.5px; padding: 9px 14px; text-decoration: none;
   transition: border-color var(--dur) var(--ease-out), background-color var(--dur) var(--ease-out);
 }
-.btn-explorer:hover { border-color: var(--line-accent); background: var(--teal-wash); text-decoration: none; }
+.btn-explorer:hover {
+  border-color: var(--slate-600); background: rgba(30, 41, 59, 0.8);
+  text-decoration: none;
+}
 .btn-explorer svg { width: 13px; height: 13px; }
 
 /* Estado vacío */
@@ -379,7 +413,7 @@ select.input option { background: var(--panel-2); color: var(--text); }
 
 /* ── Pie ────────────────────────────────────────────────────── */
 .footer {
-  max-width: 720px; margin: 0 auto; padding: 20px 24px 36px;
+  max-width: 768px; margin: 0 auto; padding: 20px 16px 36px;
   border-top: 1px solid var(--line); color: var(--text-dim);
   font-size: 11.5px; display: flex; justify-content: space-between;
   align-items: center; gap: 12px; flex-wrap: wrap;
