@@ -251,6 +251,8 @@ const fetchStellarBalance = async (walletAddress: string): Promise<BalanceEstado
   }
 };
 
+type RolAutoridad = "policia" | "fiscalia";
+
 const PNP_PAYLOAD = {
   rol: "policia",
   verificadorId: "PNP-DIRNIC-04821",
@@ -263,6 +265,60 @@ const FISCALIA_PAYLOAD = {
   verificadorWallet: DEMO_INFORMANTE_WALLET,
   resultado: "APROBADO" as const,
 };
+
+/* Sesión de demo por autoridad. En producción el API exige un JWT en
+   /verify y /release, así que hay que iniciar sesión antes de firmar. Las
+   credenciales viven en el propio bundle: es un entorno de demostración con
+   cuentas de prueba sembradas, no un sistema de acceso real. */
+const DEMO_CREDENCIALES: Record<RolAutoridad, { codigo: string; clave: string }> = {
+  policia: { codigo: PNP_PAYLOAD.verificadorId, clave: "secreto123" },
+  fiscalia: { codigo: FISCALIA_PAYLOAD.verificadorId, clave: "secreto123" },
+};
+
+const tokensDemo = new Map<RolAutoridad, string>();
+
+async function tokenDeDemo(rol: RolAutoridad): Promise<string> {
+  const enCache = tokensDemo.get(rol);
+  if (enCache) return enCache;
+
+  const { codigo, clave } = DEMO_CREDENCIALES[rol];
+  const r = await fetch(apiUrl("/api/auth/login"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ codigo, clave }),
+  });
+  const j = await r.json().catch(() => ({}));
+  const token = (j as { token?: string }).token;
+  if (!r.ok || !token) {
+    throw new Error(
+      (j as { error?: string }).error || `No se pudo iniciar sesión (${r.status})`,
+    );
+  }
+  tokensDemo.set(rol, token);
+  return token;
+}
+
+/* Firma con reintento: si el token expiró (12 h) se descarta y se pide uno
+   nuevo, en vez de dejar al usuario atascado con un 401. */
+async function fetchAutorizado(
+  rol: RolAutoridad,
+  path: string,
+  body: unknown,
+): Promise<Response> {
+  const enviar = (token: string) =>
+    fetch(apiUrl(path), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+
+  const r = await enviar(await tokenDeDemo(rol));
+  if (r.status === 401) {
+    tokensDemo.delete(rol);
+    return enviar(await tokenDeDemo(rol));
+  }
+  return r;
+}
 
 /* Las dos mitades de la multisig. El panel las lista siempre, estén o no
    firmadas, para que el quorum se lea como "quién falta" y no como un
@@ -636,11 +692,7 @@ export default function App() {
     setActionLoading(`verify-${rol}`);
     setReleaseResult(null);
     try {
-      const r = await fetch(apiUrl(`/api/cases/${selectedId}/verify`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const r = await fetchAutorizado(rol, `/api/cases/${selectedId}/verify`, payload);
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
         throw new Error(j.error || `Error ${r.status}`);
@@ -727,10 +779,8 @@ export default function App() {
     setProbeLoading(true);
     setProbe(null);
     try {
-      const r = await fetch(apiUrl(`/api/cases/${selectedId}/release`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ monto: detail.montoRecompensa }),
+      const r = await fetchAutorizado("policia", `/api/cases/${selectedId}/release`, {
+        monto: detail.montoRecompensa,
       });
       const j = await r.json().catch(() => ({}));
       setProbe({
@@ -751,10 +801,8 @@ export default function App() {
     // El backend ignora este body y paga caso.montoRecompensaSugerido, así
     // que se envía por contrato pero la cifra real la manda el servidor.
     try {
-      const r = await fetch(apiUrl(`/api/cases/${selectedId}/release`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ monto: detail?.montoRecompensa ?? 50 }),
+      const r = await fetchAutorizado("policia", `/api/cases/${selectedId}/release`, {
+        monto: detail?.montoRecompensa ?? 50,
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `Error ${r.status}`);

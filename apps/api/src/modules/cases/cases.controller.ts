@@ -75,6 +75,18 @@ export async function verifyCaseHandler(req: Request, res: Response): Promise<vo
     const id = String(req.params.id);
     const validated = verifySchema.parse(req.body);
 
+    /* El rol lo decide el token, no el body. requireRol solo comprueba que el
+       rol esté entre los permitidos, asi que sin esto un token de POLICIA
+       podia enviar rol:"fiscalia" y quedarse con las dos mitades del quorum.
+       El middleware siempre deja req.rol poblado: del JWT en produccion, del
+       body en el bypass de dev/test. */
+    if (req.rol) {
+      const rolToken = req.rol.toUpperCase();
+      if (rolToken === "POLICIA" || rolToken === "FISCALIA") {
+        validated.rol = rolToken;
+      }
+    }
+
     // verificadorId viene del JWT via authMiddleware (req.verificadorId)
     const result = await casesService.verifyCase(id, validated, req.verificadorId);
 
