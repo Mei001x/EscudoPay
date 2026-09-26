@@ -2,6 +2,12 @@
 
 Plataforma para la gestión verificable de denuncias ciudadanas y desembolso de recompensas sobre Stellar Testnet, con flujo de aprobación multisig institucional. El sistema permite a un informante identificado por wallet presentar evidencia, anclar su hash on-chain y percibir una recompensa únicamente tras quórum de verificación (Policía y Fiscalía). La identidad del informante permanece disociada del contenido de la denuncia.
 
+> ### Evidencia On-Chain Verificada (Stellar Testnet)
+> - **Transacción de Desembolso / Pago:** [`21e3b167dcee38429d7963a676c9adbd758a6f02acf2d4dc94f21ddd62124444`](https://stellar.expert/explorer/testnet/tx/21e3b167dcee38429d7963a676c9adbd758a6f02acf2d4dc94f21ddd62124444)
+> - **Cuenta Custodia Emisora:** `GCDMECVQSLQCMDLWN7ZJL7X425U7G4TD2GCAGCRNX4XME253YHV6HVXH`
+> - **Red:** Stellar Testnet (Operation `payment` nativo XLM completada con quórum pericial y fiscal)
+> - **Ver en Explorador:** [Abrir en Stellar Expert](https://stellar.expert/explorer/testnet/tx/21e3b167dcee38429d7963a676c9adbd758a6f02acf2d4dc94f21ddd62124444)
+
 ## Índice
 
 1. [Contexto y objetivos](#1-contexto-y-objetivos)
@@ -460,6 +466,9 @@ Con configuración Stellar válida, `tx` es el hash real de la operación `payme
 
 #### Paso 5 — Verificación y auditoría pública
 
+Ejemplo de transacción real ejecutada y verificada en Testnet:
+* **Tx Hash de pago de recompensa:** [`21e3b167dcee38429d7963a676c9adbd758a6f02acf2d4dc94f21ddd62124444`](https://stellar.expert/explorer/testnet/tx/21e3b167dcee38429d7963a676c9adbd758a6f02acf2d4dc94f21ddd62124444)
+* 
 Abrir en el navegador las URLs retornadas en los pasos 1 y 4:
 
 ```
